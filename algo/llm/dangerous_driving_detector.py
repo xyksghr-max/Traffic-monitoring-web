@@ -7,12 +7,14 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
+from dotenv import load_dotenv
 
 from loguru import logger
 from openai import OpenAI
 
 from algo.llm.prompts import DANGEROUS_DRIVING_PROMPT
 
+load_dotenv() # take environment variables from .env if available
 
 @dataclass
 class DangerousDrivingConfig:
