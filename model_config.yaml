@@ -1,0 +1,39 @@
+# Default YOLO model configuration for the traffic monitoring algorithm service
+model:
+  name: yolov8n.pt
+  device: cpu            # options: cpu, cuda, mps
+  confidence_threshold: 0.35
+  iou_threshold: 0.50
+  max_det: 200
+  half_precision: false
+  image_size: 640
+
+tracking:
+  enabled: true
+  tracker: bytetrack      # options: bytetrack, deepocsort, strongsort
+  max_age: 30
+  min_hits: 3
+
+post_processing:
+  enable_groups: true
+  distance_threshold: 150.0
+  min_group_size: 2
+
+llm:
+  enabled: true
+  prompt_template: default
+  risk_threshold:
+    low: 0.45
+    medium: 0.65
+    high: 0.80
+
+classes:
+  include:
+    - person
+    - bicycle
+    - car
+    - motorcycle
+    - bus
+    - truck
+    - traffic_light
+    - stop_sign
