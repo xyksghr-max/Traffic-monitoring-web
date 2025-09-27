@@ -77,6 +77,36 @@ Traffic-monitoring-web/
 
 ### 1. 环境准备
 
+1. 安装 Python 3.10 及以上。
+2. 创建虚拟环境并安装依赖：
+   ```bash
+   cd web-flask
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+3. 下载所需 YOLO 权重（例如 `yolov8n.pt`、`yolo11n.pt`），放入 `weights/`，并在 `model_config.yaml` 中配置。
+4. 准备多模态模型调用所需的 API Key：
+   - 系统变量 `DASHSCOPE_API_KEY`（已在当前机器配置）；
+   - 如需走代理或不同区域，可在 `config.py` 中扩展。
+
+## 配置说明
+`config.py` 建议包含下列字段，供算法端灵活调整：
+- `SERVER_HOST` / `SERVER_PORT`：默认 `0.0.0.0:5000`。
+- `FRAME_INTERVAL`：推理间隔（单位：秒），项目需求默认 1.8 秒；检测到高风险时可通过 `ALERT_PAUSE_SECONDS` 延迟下一帧（默认 3 秒）。
+- `MAX_CONCURRENT_STREAMS`：并发摄像头上限。
+- `BACKEND_BASE_URL`：Spring Boot 服务地址（如 `http://localhost:9090/api`），用于获取摄像头列表、上报统计信息。
+- `JWT_SECRET` / `JWT_HEADER`：若需要调用后端需要鉴权的接口，可复用前端登录后下发的 Token。
+- `YOLO_MODEL_NAME`、`YOLO_CONFIDENCE`、`YOLO_IOU`、`TRACKER_TYPE` 等模型参数。
+- `LLM_MODEL`、`LLM_TIMEOUT`、`LLM_MAX_RETRY`：多模态大模型调用设置。
+- `WS_HEARTBEAT_SECONDS`：WebSocket 心跳/健康检测间隔。
+- `SAVE_RAW_FRAMES`：是否落盘原始帧，用于离线复盘调试。
+
+所有敏感配置（API Key/密钥）应通过环境变量加载，避免硬编码。
+
+## 启动方式
+开发阶段可直接运行 Flask 内置服务器：
+
 ```bash
 # 克隆项目
 git clone <repository-url>
