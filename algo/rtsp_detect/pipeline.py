@@ -83,6 +83,28 @@ class DetectionPipeline:
             groups, group_images = self._analyze_groups(frame, detected_objects)
             llm_result = self._analyze_dangerous_driving(data_uri, detected_objects, groups)
 
+            # Normalize traffic group fields to include requested aliases while preserving originals
+            normalized_groups: list[Dict[str, Any]] = []
+            for g in groups:
+                g2 = dict(g)
+                # Alias keys expected by frontend schema
+                if "objectCount" in g2 and "memberCount" not in g2:
+                    g2["memberCount"] = g2.get("objectCount")
+                if "averageConfidence" in g2 and "avgConfidence" not in g2:
+                    g2["avgConfidence"] = g2.get("averageConfidence")
+                if "bbox" in g2 and "groupBbox" not in g2:
+                    g2["groupBbox"] = g2.get("bbox")
+                normalized_groups.append(g2)
+
+            # Add incremental groupIndex to each dangerous driving result item (1,2,3,...)
+            raw_results = llm_result.get("results", []) or []
+            dangerous_results: list[Dict[str, Any]] = []
+            for idx, item in enumerate(raw_results, start=1):
+                # Keep original fields and add required ones
+                out = dict(item)
+                out["groupIndex"] = idx
+                dangerous_results.append(out)
+
             height, width = frame.shape[:2]
             payload = {
                 "type": "detection_result",
@@ -93,9 +115,9 @@ class DetectionPipeline:
                     "imageWidth": width,
                     "imageHeight": height,
                     "detectedObjects": detected_objects,
-                    "trafficGroups": groups,
+                    "trafficGroups": normalized_groups,
                     "groupImages": group_images,
-                    "dangerousDrivingResults": llm_result.get("results", []),
+                    "dangerousDrivingResults": dangerous_results,
                     "hasDangerousDriving": llm_result.get("hasDangerousDriving", False),
                     "maxRiskLevel": llm_result.get("maxRiskLevel", "none"),
                     "processTime": detection_time,
@@ -118,7 +140,7 @@ class DetectionPipeline:
         self,
         frame: np.ndarray,
         detections: Sequence[Dict],
-    ) -> tuple[list[Dict], list[str]]:
+    ) -> tuple[list[Dict], list[Dict]]:
         if not self.group_analyzer:
             return [], []
         try:
