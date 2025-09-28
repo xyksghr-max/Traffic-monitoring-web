@@ -11,6 +11,18 @@ from websocket import create_connection
 BASE_URL = "http://localhost:5000"
 
 
+def test_public_health_endpoint() -> None:
+    url = f"{BASE_URL}/health/health_check"
+    resp = requests.get(url, timeout=5)
+    resp.raise_for_status()
+    payload = resp.json()
+    assert isinstance(payload, dict)
+    assert payload.get("status") == "ok"
+    assert payload.get("service") == "algo"
+    assert "version" in payload
+    print("HTTP public health check OK", json.dumps(payload, ensure_ascii=False))
+
+
 def test_health_endpoint() -> None:
     url = f"{BASE_URL}/api/health/health_check"
     resp = requests.get(url, timeout=5)
