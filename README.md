@@ -33,38 +33,29 @@
 ## 📁 项目结构
 
 ```
-Traffic-monitoring-web/
-├── app.py                      # Flask 应用入口文件
-├── config.py                   # 应用配置和环境变量管理
-├── main.py                     # 主程序启动入口
-├── model_config.yaml           # YOLO 模型和推理参数配置
-├── pyproject.toml              # 项目依赖和构建配置
-├── requirements.txt            # Python 依赖清单 (uv 生成)
-├── yolov8n.pt                 # YOLO v8 nano 模型权重文件
-│
-├── algo/                       # 核心算法模块
-│   ├── llm/                   # 大语言模型相关
-│   │   ├── dangerous_driving_detector.py  # 危险驾驶检测器
-│   │   └── prompts.py         # LLM 提示词模板
-│   └── rtsp_detect/           # 视频流检测模块
-│       ├── group_analyzer.py  # 交通群组分析
-│       ├── pipeline.py        # 检测流水线
-│       ├── session_manager.py # 会话管理
-│       ├── video_stream.py    # 视频流处理
-│       └── yolo_detector.py   # YOLO 目标检测
-│
-├── routes/                     # API 路由模块
-│   ├── health.py              # 健康检查接口
-│   └── ws.py                  # WebSocket 路由
-│
-├── utils/                      # 工具模块
-│   ├── image.py               # 图像处理工具
-│   ├── logger.py              # 日志配置
-│   └── response.py            # 响应格式化
-│
-├── clients/                    # 外部服务客户端
-│
-└── test_*.py                  # 测试文件
+web-flask/
+|-- app.py                    # Flask 应用入口与工厂
+|-- config.py                 # 运行配置（环境变量前缀 ALGO_）
+|-- model_config.yaml         # YOLO、群组、LLM 默认配置
+|-- requirements.txt          # 依赖清单
+|-- routes/
+|   |-- health.py             # /api/health/health_check
+|   `-- ws.py                 # WebSocket 路由与会话管理
+|-- algo/
+|   |-- rtsp_detect/
+|   |   |-- video_stream.py   # 拉流与重连逻辑
+|   |   |-- yolo_detector.py  # YOLO 推理封装
+|   |   |-- group_analyzer.py # 群组聚类与证据裁剪
+|   |   `-- pipeline.py       # 拉流 -> 推理 -> 分析流水线
+|   `-- llm/
+|       |-- dangerous_driving_detector.py  # Qwen-VL 调用封装
+|       `-- prompts.py        # 提示词模板
+|-- utils/
+|   |-- image.py              # 帧转 Base64 工具
+|   |-- logger.py             # Loguru 日志配置
+|   `-- response.py           # HTTP 响应封装
+|-- clients/                  # 预留与后端/文件服务的集成
+`-- tests & scripts           # 手工测试脚本
 ```
 
 ## ⚡ 快速开始
@@ -111,41 +102,39 @@ Traffic-monitoring-web/
 # 克隆项目
 git clone <repository-url>
 cd Traffic-monitoring-web
-
-# 创建虚拟环境 (推荐使用 uv)
-pip install uv
-uv venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
-
-# 安装依赖
-uv pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\activate            # PowerShell 使用 .venv\Scripts\Activate
+pip install -r requirements.txt
 ```
 
 ### 2. 配置环境变量
 
 创建 `.env` 文件或设置系统环境变量：
 
-```bash
-# 阿里云通义千问 API Key (必需)
-DASHSCOPE_API_KEY=your-dashscope-api-key
+运行时配置可通过环境变量（前缀 `ALGO_`）或 `config.py` 默认值获得。
 
-# 可选配置
-ALGO_SERVER_HOST=0.0.0.0
-ALGO_SERVER_PORT=5000
-ALGO_FRAME_INTERVAL=1.8
-ALGO_BACKEND_BASE_URL=http://localhost:9090/api
-```
+| 变量                       | 说明                      | 默认值                      |
+| -------------------------- | ------------------------- | --------------------------- |
+| `ALGO_SERVER_HOST`         | 服务监听地址              | `0.0.0.0`                   |
+| `ALGO_SERVER_PORT`         | HTTP/WebSocket 端口       | `5000`                      |
+| `ALGO_FRAME_INTERVAL`      | 检测帧间隔（秒）          | `1.8`                       |
+| `ALGO_ALERT_PAUSE_SECONDS` | 高风险暂停时长            | `3.0`                       |
+| `ALGO_BACKEND_BASE_URL`    | Spring Boot 后端地址      | `http://localhost:9090/api` |
+| `ALGO_MODEL_CONFIG_PATH`   | 模型配置文件              | `model_config.yaml`         |
+| `ALGO_ALLOWED_CLASSES`     | YOLO 保留类别（逗号分隔） | 默认车辆/行人集合           |
+
+启用 LLM 分析需在运行环境设置 `DASHSCOPE_API_KEY`。`model_config.yaml` 的 `llm.enabled` 控制是否实例化分析器，`llm.cooldown_seconds` 控制调用冷却，`risk_threshold` 映射置信度到风险等级。
+
+YOLO 相关配置：
+
+- `model.name` 可指定放置于 `weights/` 目录的权重文件。
+- `model.device` 支持 `cpu`、`cuda`、`mps`。
+- `post_processing.distance_threshold` 与 `min_group_size` 用于调整群组聚类。
 
 ### 3. 启动服务
 
 ```bash
-# 开发模式启动
-python main.py
-
-# 或使用 Flask 开发服务器
+.venv\Scripts\activate
 python app.py
 
 # 生产环境部署
@@ -227,74 +216,76 @@ llm:
 }
 ```
 
-### WebSocket 接口
+### WebSocket 消息约定
 
-WebSocket 连接地址: `ws://localhost:5000/ws`
+所有消息均包含 `type` 与 `data` 字段。
 
-#### 客户端发送消息格式
+| 类型               | 方向          | 说明                                                         |
+| ------------------ | ------------- | ------------------------------------------------------------ |
+| `connection_ack`   | 服务端→客户端 | 建立连接后立即返回（`"message": "WS connected (pipeline ready)"`）。 |
+| `pong`             | 服务端→客户端 | 响应 `ping` 心跳。                                           |
+| `camera_status`    | 服务端→客户端 | 摄像头状态（`cameraId`、`status`、`message`、可选 `latencyMs`）。 |
+| `detection_result` | 服务端→客户端 | 推理结果，包含帧、目标、群组、LLM 信息。                     |
+| `stream_stopped`   | 服务端→客户端 | 流停止理由。                                                 |
+| `error`            | 服务端→客户端 | 非可恢复错误说明。                                           |
+| `ping`             | 客户端→服务端 | 心跳请求。                                                   |
+| `start_stream`     | 客户端→服务端 | `{ "cameraId":1, "rtspUrl":"rtsp://..." }` 启动或重启检测。  |
+| `stop_stream`      | 客户端→服务端 | `{ "cameraId":1 }` 停止检测。                                |
+| `check_camera`     | 客户端→服务端 | `{ "cameraId":1, "rtspUrl":"..." }` 仅做连通性探测。         |
 
-| 消息类型 | 描述 | 数据字段 |
-|---------|------|----------|
-| `start_stream` | 启动视频流检测 | `cameraId`, `rtspUrl`, `cameraName` |
-| `stop_stream` | 停止视频流检测 | `cameraId` |
-| `check_camera` | 检查摄像头状态 | `cameraId`, `rtspUrl` |
-| `ping` | 心跳检测 | 无 |
+`detection_result.data` 示例：
 
-**示例:**
 ```json
 {
-  "type": "start_stream",
-  "data": {
-    "cameraId": 1,
-    "rtspUrl": "rtsp://example.com/stream",
-    "cameraName": "主干道摄像头"
-  }
+  "cameraId": 1,
+  "timestamp": "2025-03-01T08:30:12.345Z",
+  "frame": "data:image/jpeg;base64,...",
+  "imageWidth": 1280,
+  "imageHeight": 720,
+  "detectedObjects": [
+    {"class": "car", "confidence": 0.92, "bbox": [120, 200, 360, 520]},
+    {"class": "person", "confidence": 0.88, "bbox": [410, 210, 470, 500]}
+  ],
+  "trafficGroups": [
+    {
+      "groupIndex": 1,
+      "objectCount": 2,
+      "bbox": [110, 190, 370, 540],
+      "classes": ["car", "person"],
+      "averageConfidence": 0.90
+    }
+  ],
+  "groupImages": [
+    {
+      "groupIndex": 1,
+      "imageBase64": "...",
+      "bbox": [110, 190, 370, 540],
+      "objectCount": 2,
+      "classes": ["car", "person"]
+    }
+  ],
+  "dangerousDrivingResults": [
+    {
+      "type": "tailgating",
+      "description": "两辆车车距过近",
+      "riskLevel": "medium",
+      "confidence": 0.71
+    }
+  ],
+  "hasDangerousDriving": true,
+  "maxRiskLevel": "medium",
+  "processTime": 0.42,
+  "llmLatency": 1.35,
+  "llmModel": "qwen-vl-plus",
+  "llmRawText": "{...}",
+  "modelType": "yolov8n",
+  "supportedClasses": ["person", "bicycle", "car", "motorcycle", "bus", "truck", "traffic_light", "stop_sign"],
+  "trackingEnabled": false,
+  "serverDrawEnabled": false
 }
 ```
 
-#### 服务端推送消息格式
-
-| 消息类型 | 描述 | 关键字段 |
-|---------|------|----------|
-| `camera_status` | 摄像头状态更新 | `cameraId`, `status`, `message` |
-| `detection_result` | 检测结果 | `cameraId`, `frame`, `detectedObjects` |
-| `stream_stopped` | 流停止通知 | `cameraId`, `reason` |
-| `error` | 错误消息 | `cameraId`, `message` |
-| `pong` | 心跳响应 | 无 |
-
-**检测结果示例:**
-```json
-{
-  "type": "detection_result",
-  "data": {
-    "cameraId": 1,
-    "frame": "data:image/jpeg;base64,...",
-    "imageWidth": 1920,
-    "imageHeight": 1080,
-    "detectedObjects": [
-      {
-        "class": "car",
-        "confidence": 0.94,
-        "bbox": [120, 220, 360, 540],
-        "trackId": 1,
-        "level": 1
-      }
-    ],
-    "trafficGroups": [...],
-    "dangerousDrivingResults": [
-      {
-        "type": "逆行",
-        "riskLevel": "high", 
-        "confidence": 0.92,
-        "description": "检测到蓝色车辆逆行"
-      }
-    ],
-    "hasDangerousDriving": true,
-    "maxRiskLevel": "high",
-    "processTime": 0.38
-  }
-}
-```
+前端应将 `averageConfidence` 当作数值处理（缺失时显示 0 或 "—"），若 `groupImages` 为空则回退使用原始帧。
 
 #### 风险等级定义
 
@@ -309,7 +300,7 @@ WebSocket 连接地址: `ws://localhost:5000/ws`
 
 1. **启动开发服务器**:
    ```bash
-   python main.py
+   python app.py
    ```
 
 2. **运行测试**:
