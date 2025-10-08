@@ -70,11 +70,13 @@ class GroupAnalyzer:
                 "bbox": bbox,
                 "classes": sorted({det["class"] for det in selected}),
                 "averageConfidence": float(sum(det.get("confidence", 0.0) for det in selected) / len(selected)),
+                "riskLevel": "none",
             }
             groups.append(group_dict)
 
             crop = self._crop_frame(frame, bbox, self.config.crop_margin)
             if crop.size != 0:
+                crop_height, crop_width = crop.shape[:2]
                 data_uri, _ = encode_frame_to_base64(crop)
                 base64_part = data_uri.split(",", 1)[1] if "," in data_uri else data_uri
                 group_images.append(
@@ -84,6 +86,9 @@ class GroupAnalyzer:
                         "bbox": bbox,
                         "objectCount": group_dict["objectCount"],
                         "classes": group_dict["classes"],
+                        "imageWidth": crop_width,
+                        "imageHeight": crop_height,
+                        "riskLevel": "none",
                     }
                 )
 

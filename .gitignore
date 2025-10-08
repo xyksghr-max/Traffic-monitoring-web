@@ -1,2 +1,12 @@
 .venv
 *.pt
+.env
+.vscode
+__pycache__/
+.ipynb_checkpoints
+.DS_Store
+data/
+outputs/
+logs/
+*.log
+*.ckpt

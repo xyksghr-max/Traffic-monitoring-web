@@ -11,7 +11,7 @@ from flask_sock import Sock
 from loguru import logger
 
 from config import settings
-from routes.health import bp as health_bp
+from routes.health import bp as health_bp, bp_public as health_public_bp
 from routes.ws import register_ws_routes
 from utils.logger import configure_logging
 
@@ -28,10 +28,17 @@ def create_app() -> Flask:
 
     # Enable CORS for API endpoints; adjust origins via env if necessary
     allowed_origins = os.getenv("ALGO_CORS_ORIGINS", "*")
-    CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+    CORS(
+        app,
+        resources={
+            r"/api/*": {"origins": allowed_origins},
+            r"/health/*": {"origins": allowed_origins},
+        },
+    )
 
     # Register HTTP blueprints
-    app.register_blueprint(health_bp, url_prefix="/api/health")
+    app.register_blueprint(health_bp, url_prefix="/api/health")  # legacy, wrapped response
+    app.register_blueprint(health_public_bp, url_prefix="/health")  # new, flat response
 
     # Attach WebSocket routes
     sock.init_app(app)

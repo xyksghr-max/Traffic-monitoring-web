@@ -12,6 +12,7 @@ from loguru import logger
 
 from algo.llm.dangerous_driving_detector import DangerousDrivingAnalyzer
 from algo.rtsp_detect.group_analyzer import GroupAnalyzer
+from algo.rtsp_detect.frame_renderer import render_frame
 from algo.rtsp_detect.video_stream import VideoStream
 from algo.rtsp_detect.yolo_detector import YoloDetector
 from utils.image import encode_frame_to_base64
@@ -73,15 +74,50 @@ class DetectionPipeline:
             detection_time = detection.get("latency", time.time() - detection_start)
             detected_objects: Sequence[Dict] = detection.get("objects", [])
 
+            # Preserve original frame for LLM analysis and group cropping
+            raw_frame = frame.copy()
+
+            groups, group_images = self._analyze_groups(raw_frame, detected_objects)
+
             try:
-                data_uri, _ = encode_frame_to_base64(frame)
+                raw_data_uri, _ = encode_frame_to_base64(raw_frame)
             except ValueError as exc:
-                logger.warning("Failed to encode frame for camera %s: %s", self.camera_id, exc)
+                logger.warning("Failed to encode raw frame for camera %s: %s", self.camera_id, exc)
                 time.sleep(self.frame_interval)
                 continue
 
-            groups, group_images = self._analyze_groups(frame, detected_objects)
-            llm_result = self._analyze_dangerous_driving(data_uri, detected_objects, groups)
+            llm_result = self._analyze_dangerous_driving(raw_data_uri, detected_objects, groups)
+
+            # Normalize traffic group fields to include requested aliases while preserving originals
+            normalized_groups: list[Dict[str, Any]] = []
+            for g in groups:
+                g2 = dict(g)
+                # Alias keys expected by frontend schema
+                if "objectCount" in g2 and "memberCount" not in g2:
+                    g2["memberCount"] = g2.get("objectCount")
+                if "averageConfidence" in g2 and "avgConfidence" not in g2:
+                    g2["avgConfidence"] = g2.get("averageConfidence")
+                if "bbox" in g2 and "groupBbox" not in g2:
+                    g2["groupBbox"] = g2.get("bbox")
+                normalized_groups.append(g2)
+
+            rendered_frame = render_frame(frame, detected_objects, normalized_groups)
+
+            try:
+                rendered_data_uri, _ = encode_frame_to_base64(rendered_frame)
+            except ValueError as exc:
+                logger.warning("Failed to encode rendered frame for camera %s: %s", self.camera_id, exc)
+                time.sleep(self.frame_interval)
+                continue
+
+            # Add incremental groupIndex to each dangerous driving result item (1,2,3,...)
+            raw_results = llm_result.get("results", []) or []
+            dangerous_results: list[Dict[str, Any]] = []
+            for idx, item in enumerate(raw_results, start=1):
+                # Keep original fields and add required ones
+                out = dict(item)
+                out["groupIndex"] = idx
+                dangerous_results.append(out)
 
             height, width = frame.shape[:2]
             payload = {
@@ -89,13 +125,14 @@ class DetectionPipeline:
                 "data": {
                     "cameraId": self.camera_id,
                     "timestamp": datetime.utcnow().isoformat() + "Z",
-                    "frame": data_uri,
+                    "frame": rendered_data_uri,
+                    "rawFrame": raw_data_uri,
                     "imageWidth": width,
                     "imageHeight": height,
                     "detectedObjects": detected_objects,
-                    "trafficGroups": groups,
+                    "trafficGroups": normalized_groups,
                     "groupImages": group_images,
-                    "dangerousDrivingResults": llm_result.get("results", []),
+                    "dangerousDrivingResults": dangerous_results,
                     "hasDangerousDriving": llm_result.get("hasDangerousDriving", False),
                     "maxRiskLevel": llm_result.get("maxRiskLevel", "none"),
                     "processTime": detection_time,
@@ -105,7 +142,8 @@ class DetectionPipeline:
                     "modelType": self.detector.model_type,
                     "supportedClasses": self.detector.supported_classes,
                     "trackingEnabled": False,
-                    "serverDrawEnabled": False,
+                    "serverDrawEnabled": True,
+                    "renderedBy": "server",
                 },
             }
             self.callback(payload)
@@ -118,7 +156,7 @@ class DetectionPipeline:
         self,
         frame: np.ndarray,
         detections: Sequence[Dict],
-    ) -> tuple[list[Dict], list[str]]:
+    ) -> tuple[list[Dict], list[Dict]]:
         if not self.group_analyzer:
             return [], []
         try:

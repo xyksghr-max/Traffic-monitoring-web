@@ -7,12 +7,14 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
+from dotenv import load_dotenv
 
 from loguru import logger
 from openai import OpenAI
 
 from algo.llm.prompts import DANGEROUS_DRIVING_PROMPT
 
+load_dotenv() # take environment variables from .env if available
 
 @dataclass
 class DangerousDrivingConfig:
@@ -93,7 +95,7 @@ class DangerousDrivingAnalyzer:
             try:
                 response = self._client.chat.completions.create(
                     model=self.config.model,
-                    messages=messages,
+                    messages=messages,  # type: ignore[arg-type]
                     timeout=self.config.timeout,
                 )
             except Exception as exc:  # pragma: no cover - network failure
@@ -129,7 +131,7 @@ class DangerousDrivingAnalyzer:
         group_lines = []
         for group in groups:
             group_lines.append(
-                f"- groupId={group.get('groupId')} count={group.get('objectCount')} classes={group.get('classes')} bbox={group.get('bbox')}"
+                f"- groupIndex={group.get('groupIndex')} count={group.get('objectCount')} classes={group.get('classes')} bbox={group.get('bbox')}"
             )
 
         summary = "\n".join(obj_lines) or "无检测目标"
