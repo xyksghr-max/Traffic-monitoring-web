@@ -71,6 +71,7 @@ class GroupAnalyzer:
                 "classes": sorted({det["class"] for det in selected}),
                 "averageConfidence": float(sum(det.get("confidence", 0.0) for det in selected) / len(selected)),
                 "riskLevel": "none",
+                "memberIndices": list(indexes),
             }
             groups.append(group_dict)
 
@@ -89,6 +90,7 @@ class GroupAnalyzer:
                         "imageWidth": crop_width,
                         "imageHeight": crop_height,
                         "riskLevel": "none",
+                        "memberIndices": list(indexes),
                     }
                 )
 

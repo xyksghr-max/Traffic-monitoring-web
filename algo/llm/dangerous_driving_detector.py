@@ -7,6 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
+import math
 from dotenv import load_dotenv
 
 from loguru import logger
@@ -125,14 +126,94 @@ class DangerousDrivingAnalyzer:
         for det in detections:
             bbox = det.get("bbox", [])
             obj_lines.append(
-                f"- class={det.get('class')} conf={det.get('confidence', 0):.2f} bbox={bbox}"
+                f"- class={det.get('class')} confidence={det.get('confidence', 0):.2f} bbox={bbox}"
             )
 
-        group_lines = []
-        for group in groups:
-            group_lines.append(
-                f"- groupIndex={group.get('groupIndex')} count={group.get('objectCount')} classes={group.get('classes')} bbox={group.get('bbox')}"
-            )
+        def _summarize_group(group: Dict[str, Any]) -> str:
+            bbox = group.get("bbox", [0, 0, 0, 0])
+            x1, y1, x2, y2 = bbox if len(bbox) == 4 else (0, 0, 0, 0)
+            width = max(float(x2) - float(x1), 1.0)
+            height = max(float(y2) - float(y1), 1.0)
+            area = width * height
+
+            indices = group.get("memberIndices") or []
+            selected: List[Dict[str, Any]] = []
+            for idx in indices:
+                if isinstance(idx, int) and 0 <= idx < len(detections):
+                    selected.append(detections[idx])
+
+            if not selected:
+                # Fallback: include objects whose center lies within the group bbox
+                for det in detections:
+                    db = det.get("bbox", [])
+                    if len(db) != 4:
+                        continue
+                    cx = (float(db[0]) + float(db[2])) / 2.0
+                    cy = (float(db[1]) + float(db[3])) / 2.0
+                    if x1 <= cx <= x2 and y1 <= cy <= y2:
+                        selected.append(det)
+
+            centers: List[tuple[float, float]] = []
+            for det in selected:
+                db = det.get("bbox", [])
+                if len(db) != 4:
+                    continue
+                centers.append(
+                    ((float(db[0]) + float(db[2])) / 2.0, (float(db[1]) + float(db[3])) / 2.0)
+                )
+
+            distances: List[float] = []
+            for i in range(len(centers)):
+                for j in range(i + 1, len(centers)):
+                    dx = centers[i][0] - centers[j][0]
+                    dy = centers[i][1] - centers[j][1]
+                    distances.append(math.hypot(dx, dy))
+
+            avg_spacing = sum(distances) / len(distances) if distances else None
+            min_spacing = min(distances) if distances else None
+            density = (len(selected) / area * 10000.0) if area > 0 else None
+
+            vehicle_classes = {"car", "bus", "truck", "motorcycle", "bicycle"}
+            pedestrian_classes = {"person"}
+
+            vehicle_centers: List[tuple[float, float]] = []
+            pedestrian_centers: List[tuple[float, float]] = []
+            for det, center in zip(selected, centers):
+                cls = str(det.get("class"))
+                if cls in vehicle_classes:
+                    vehicle_centers.append(center)
+                if cls in pedestrian_classes:
+                    pedestrian_centers.append(center)
+
+            ped_vehicle_min_dist: float | None = None
+            if vehicle_centers and pedestrian_centers:
+                pv_distances = [
+                    math.hypot(vc[0] - pc[0], vc[1] - pc[1])
+                    for vc in vehicle_centers
+                    for pc in pedestrian_centers
+                ]
+                if pv_distances:
+                    ped_vehicle_min_dist = min(pv_distances)
+
+            summary_parts = [
+                f"groupIndex={group.get('groupIndex')}",
+                f"count={group.get('objectCount')}",
+                f"classes={group.get('classes')}",
+                f"bbox={bbox}",
+            ]
+            if density is not None:
+                summary_parts.append(f"density={density:.2f}/1e4px")
+            if avg_spacing is not None:
+                summary_parts.append(f"avgSpacing={avg_spacing:.1f}px")
+            if min_spacing is not None:
+                summary_parts.append(f"minSpacing={min_spacing:.1f}px")
+            summary_parts.append(f"vehicles={len(vehicle_centers)}")
+            summary_parts.append(f"pedestrians={len(pedestrian_centers)}")
+            if ped_vehicle_min_dist is not None:
+                summary_parts.append(f"pedVehicleMinDist={ped_vehicle_min_dist:.1f}px")
+            return "- " + " ".join(summary_parts)
+
+        group_lines = [_summarize_group(group) for group in groups]
 
         summary = "\n".join(obj_lines) or "无检测目标"
         group_summary = "\n".join(group_lines) or "无对象聚集"
@@ -164,21 +245,102 @@ class DangerousDrivingAnalyzer:
             return self._empty_result(latency=0.0, raw_text=raw_text)
 
         results = json_payload.get("results", [])
-        normalized_results = []
+        normalized_results: List[Dict[str, Any]] = []
         max_risk = "none"
-        for item in results:
+
+        fallback_indices = []
+        seen = set()
+        for group in json_payload.get("groups", []):
+            idx = group.get("groupIndex")
+            if idx and idx not in seen:
+                fallback_indices.append(int(idx))
+                seen.add(idx)
+
+        def _fallback_index(position: int) -> int:
+            if position < len(fallback_indices):
+                return fallback_indices[position]
+            return position + 1
+
+        for position, item in enumerate(results):
             risk = str(item.get("riskLevel", "none")).lower()
             confidence = float(item.get("confidence", 0.0))
             if risk not in {"none", "low", "medium", "high"}:
                 risk = self._risk_from_confidence(confidence)
-            normalized_results.append(
-                {
-                    "type": item.get("type", "unknown"),
-                    "description": item.get("description", ""),
-                    "riskLevel": risk,
-                    "confidence": confidence,
-                }
-            )
+
+            group_index = item.get("groupIndex")
+            try:
+                group_index = int(group_index) if group_index is not None else None
+            except (TypeError, ValueError):
+                group_index = None
+            if not group_index:
+                group_index = _fallback_index(position)
+
+            risk_types = item.get("riskTypes", [])
+            if isinstance(risk_types, str):
+                tokens = (
+                    risk_types.replace("；", ";")
+                    .replace("、", ";")
+                    .replace("，", ";")
+                    .split(";")
+                )
+                risk_types = [token.strip() for token in tokens if token.strip()]
+            elif isinstance(risk_types, (list, tuple, set)):
+                risk_types = [str(token).strip() for token in risk_types if str(token).strip()]
+            else:
+                fallback_type = item.get("type")
+                risk_types = [str(fallback_type).strip()] if fallback_type else []
+
+            trigger_ids = item.get("triggerObjectIds", [])
+            parsed_ids: List[int] = []
+            if isinstance(trigger_ids, (list, tuple, set)):
+                for value in trigger_ids:
+                    try:
+                        parsed_ids.append(int(value))
+                    except (TypeError, ValueError):
+                        continue
+            elif trigger_ids is None:
+                parsed_ids = []
+            else:
+                for token in str(trigger_ids).replace("，", ",").split(","):
+                    token = token.strip()
+                    if not token:
+                        continue
+                    try:
+                        parsed_ids.append(int(token))
+                    except ValueError:
+                        continue
+            trigger_ids = parsed_ids
+
+            danger_count = item.get("dangerObjectCount")
+            try:
+                danger_count = int(danger_count) if danger_count is not None else None
+            except (TypeError, ValueError):
+                danger_count = None
+
+            description = str(item.get("description", ""))
+            soft_keywords = {"交通拥堵", "车流拥堵", "拥堵", "车距过近", "跟车过近", "排队", "缓慢行驶", "慢速行驶"}
+            severe_keywords = {"冲突", "碰撞", "追尾", "逆行", "闯红灯", "危险动作", "冲撞", "驶入人行道", "闯入人行道"}
+            combined_text = description + "".join(risk_types)
+            if risk == "high" and not any(keyword in combined_text for keyword in severe_keywords):
+                if risk_types and all(any(keyword in rt for keyword in soft_keywords) for rt in risk_types):
+                    risk = "low"
+                elif any(keyword in combined_text for keyword in soft_keywords):
+                    risk = "medium"
+                elif not combined_text:
+                    risk = "medium"
+
+            normalized_item = {
+                "groupIndex": group_index,
+                "type": item.get("type", "unknown"),
+                "description": item.get("description", ""),
+                "riskLevel": risk,
+                "confidence": confidence,
+                "riskTypes": risk_types,
+                "dangerObjectCount": danger_count,
+                "triggerObjectIds": trigger_ids,
+            }
+            normalized_results.append(normalized_item)
+
             if self._risk_level_value(risk) > self._risk_level_value(max_risk):
                 max_risk = risk
 

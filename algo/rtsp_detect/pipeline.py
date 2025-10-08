@@ -13,6 +13,7 @@ from loguru import logger
 from algo.llm.dangerous_driving_detector import DangerousDrivingAnalyzer
 from algo.rtsp_detect.group_analyzer import GroupAnalyzer
 from algo.rtsp_detect.frame_renderer import render_frame
+from algo.rtsp_detect.risk_alert_manager import RiskAlertManager
 from algo.rtsp_detect.video_stream import VideoStream
 from algo.rtsp_detect.yolo_detector import YoloDetector
 from utils.image import encode_frame_to_base64
@@ -41,6 +42,7 @@ class DetectionPipeline:
         self.callback = callback
         self.group_analyzer = group_analyzer
         self.dangerous_analyzer = dangerous_analyzer
+        self.risk_manager = RiskAlertManager()
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -101,6 +103,11 @@ class DetectionPipeline:
                     g2["groupBbox"] = g2.get("bbox")
                 normalized_groups.append(g2)
 
+            raw_results = llm_result.get("results", []) or []
+            now_ts = time.time()
+            alerts = self.risk_manager.update(now_ts, raw_results)
+            self._apply_alerts_to_groups(normalized_groups, group_images, alerts)
+
             rendered_frame = render_frame(frame, detected_objects, normalized_groups)
 
             try:
@@ -110,14 +117,7 @@ class DetectionPipeline:
                 time.sleep(self.frame_interval)
                 continue
 
-            # Add incremental groupIndex to each dangerous driving result item (1,2,3,...)
-            raw_results = llm_result.get("results", []) or []
-            dangerous_results: list[Dict[str, Any]] = []
-            for idx, item in enumerate(raw_results, start=1):
-                # Keep original fields and add required ones
-                out = dict(item)
-                out["groupIndex"] = idx
-                dangerous_results.append(out)
+            dangerous_results = alerts
 
             height, width = frame.shape[:2]
             payload = {
@@ -132,9 +132,11 @@ class DetectionPipeline:
                     "detectedObjects": detected_objects,
                     "trafficGroups": normalized_groups,
                     "groupImages": group_images,
+                    "alerts": dangerous_results,
                     "dangerousDrivingResults": dangerous_results,
-                    "hasDangerousDriving": llm_result.get("hasDangerousDriving", False),
-                    "maxRiskLevel": llm_result.get("maxRiskLevel", "none"),
+                    "hasDangerousDriving": self.risk_manager.has_high_risk(),
+                    "maxRiskLevel": self.risk_manager.highest_risk_level(),
+                    "alertGeneratedAt": now_ts,
                     "processTime": detection_time,
                     "llmLatency": llm_result.get("latency"),
                     "llmModel": llm_result.get("model"),
@@ -151,6 +153,58 @@ class DetectionPipeline:
             elapsed = time.time() - detection_start
             wait_time = max(self.frame_interval - elapsed, 0.05)
             time.sleep(wait_time)
+
+    def _apply_alerts_to_groups(
+        self,
+        groups: list[Dict[str, Any]],
+        group_images: list[Dict[str, Any]],
+        alerts: Sequence[Dict[str, Any]],
+    ) -> None:
+        level_map = {"high": "blue", "medium": "yellow", "low": "yellow"}
+        alert_index: Dict[int, Dict[str, Any]] = {}
+        for alert in alerts:
+            idx = alert.get("groupIndex")
+            try:
+                idx_int = int(idx)
+            except (TypeError, ValueError):
+                continue
+            alert_index[idx_int] = alert
+
+        for group in groups:
+            raw_idx = group.get("groupIndex")
+            try:
+                idx = int(raw_idx or 0)
+            except (TypeError, ValueError):
+                idx = 0
+            alert = alert_index.get(idx)
+            if alert:
+                risk_level = str(alert.get("riskLevel", "none")).lower()
+                group["riskLevelRaw"] = risk_level
+                group["riskLevel"] = level_map.get(risk_level, "none")
+                group["riskTypes"] = alert.get("riskTypes", [])
+                group["dangerObjectCount"] = alert.get("dangerObjectCount")
+                group["triggerObjectIds"] = alert.get("triggerObjectIds", [])
+                group["alertDescription"] = alert.get("description")
+                group["alertConfidence"] = alert.get("confidence")
+            else:
+                group.setdefault("riskLevel", "none")
+                group.setdefault("riskLevelRaw", "none")
+
+        for image in group_images:
+            raw_idx = image.get("groupIndex")
+            try:
+                idx = int(raw_idx or 0)
+            except (TypeError, ValueError):
+                idx = 0
+            alert = alert_index.get(idx)
+            if alert:
+                risk_level = str(alert.get("riskLevel", "none")).lower()
+                image["riskLevelRaw"] = risk_level
+                image["riskLevel"] = level_map.get(risk_level, "none")
+                image["riskTypes"] = alert.get("riskTypes", [])
+            else:
+                image.setdefault("riskLevel", "none")
+                image.setdefault("riskLevelRaw", "none")
 
     def _analyze_groups(
         self,
