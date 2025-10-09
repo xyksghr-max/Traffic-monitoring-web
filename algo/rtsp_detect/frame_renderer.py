@@ -8,11 +8,13 @@ import cv2
 import numpy as np
 
 
-OBJECT_COLOR = (0, 0, 255)  # Red in BGR
+OBJECT_COLOR = (0, 0, 255)  # 红色（BGR）
 GROUP_COLORS = {
-    "blue": (255, 0, 0),  # High risk → blue box (BGR)
-    "yellow": (0, 215, 255),  # Medium risk
-    "none": (0, 215, 255),
+    "blue": (255, 0, 0),       # 高风险 → 蓝色
+    "orange": (0, 165, 255),   # 中风险 → 橙色
+    "yellow": (0, 255, 255),   # 低风险 → 亮黄色
+    "gray": (200, 200, 200),   # 无风险 → 灰色
+    "none": (200, 200, 200),
     "default": (0, 215, 255),
 }
 OBJECT_THICKNESS = 2
@@ -77,6 +79,14 @@ def _draw_groups(frame: np.ndarray, groups: Sequence[Dict]) -> None:
         index = group.get("groupIndex", "")
         object_count = group.get("objectCount") or group.get("memberCount")
 
+        risk_label_map = {
+            "blue": "High",
+            "orange": "Medium",
+            "yellow": "Low",
+            "gray": "None",
+            "none": "None",
+        }
+
         label_parts: list[str] = [f"Group {index}"]
         if object_count:
             try:
@@ -85,8 +95,7 @@ def _draw_groups(frame: np.ndarray, groups: Sequence[Dict]) -> None:
                 count_int = object_count
             label_parts.append(f"{count_int} objs")
 
-        if risk_level in {"blue", "yellow"}:
-            label_parts.append(risk_level.upper())
+        label_parts.append(risk_label_map.get(risk_level, "Unknown"))
 
         label = " | ".join(str(part) for part in label_parts if part)
         _draw_label(frame, (x1, y1), label, color)

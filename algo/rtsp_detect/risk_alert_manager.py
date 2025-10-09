@@ -100,26 +100,26 @@ class RiskAlertManager:
             if group_index <= 0:
                 continue
 
-            risk_level = str(result.get("riskLevel", "none")).lower()
-            risk_types = _normalize_risk_types(result.get("riskTypes") or result.get("type"))
-            object_ids = _normalize_object_ids(result.get("triggerObjectIds"))
-            danger_count_raw = result.get("dangerObjectCount")
-            try:
-                danger_count = int(danger_count_raw) if danger_count_raw is not None else None
-            except (TypeError, ValueError):
-                danger_count = None
-            description = result.get("description", "") or ""
-            confidence = float(result.get("confidence", 0.0))
-
-            soft_keywords = {"交通拥堵", "车流拥堵", "拥堵", "车距过近", "跟车过近", "排队", "缓慢行驶", "慢速行驶"}
-            severe_keywords = {"冲突", "碰撞", "追尾", "逆行", "闯红灯", "危险动作", "冲撞", "驶入人行道", "闯入人行道"}
-            combined_text = str(description) + "".join(risk_types)
-            if risk_level == "high" and not any(keyword in combined_text for keyword in severe_keywords):
-                if risk_types and all(any(keyword in rt for keyword in soft_keywords) for rt in risk_types):
-                    risk_level = "low"
-                elif any(keyword in combined_text for keyword in soft_keywords):
-                    risk_level = "medium"
-
+            risk_level = str(result.get("riskLevel", "none")).lower()
+            risk_types = _normalize_risk_types(result.get("riskTypes") or result.get("type"))
+            object_ids = _normalize_object_ids(result.get("triggerObjectIds"))
+            danger_count_raw = result.get("dangerObjectCount")
+            try:
+                danger_count = int(danger_count_raw) if danger_count_raw is not None else None
+            except (TypeError, ValueError):
+                danger_count = None
+            description = result.get("description", "") or ""
+            confidence = float(result.get("confidence", 0.0))
+
+            soft_keywords = {"交通拥堵", "车流拥堵", "拥堵", "车距过近", "跟车过近", "排队", "缓慢行驶", "慢速行驶"}
+            severe_keywords = {"冲突", "碰撞", "追尾", "逆行", "闯红灯", "危险动作", "冲撞", "驶入人行道", "闯入人行道"}
+            combined_text = str(description) + "".join(risk_types)
+            if risk_level == "high" and not any(keyword in combined_text for keyword in severe_keywords):
+                if risk_types and all(any(keyword in rt for keyword in soft_keywords) for rt in risk_types):
+                    risk_level = "low"
+                elif any(keyword in combined_text for keyword in soft_keywords):
+                    risk_level = "medium"
+
             existing = self._entries.get(group_index)
             if existing:
                 same_types = risk_types == existing.risk_types or not risk_types

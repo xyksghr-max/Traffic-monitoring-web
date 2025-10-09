@@ -160,7 +160,7 @@ class DetectionPipeline:
         group_images: list[Dict[str, Any]],
         alerts: Sequence[Dict[str, Any]],
     ) -> None:
-        level_map = {"high": "blue", "medium": "yellow", "low": "yellow"}
+        level_map = {"high": "blue", "medium": "orange", "low": "yellow", "none": "gray"}
         alert_index: Dict[int, Dict[str, Any]] = {}
         for alert in alerts:
             idx = alert.get("groupIndex")
@@ -187,7 +187,7 @@ class DetectionPipeline:
                 group["alertDescription"] = alert.get("description")
                 group["alertConfidence"] = alert.get("confidence")
             else:
-                group.setdefault("riskLevel", "none")
+                group.setdefault("riskLevel", "gray")
                 group.setdefault("riskLevelRaw", "none")
 
         for image in group_images:
@@ -203,7 +203,7 @@ class DetectionPipeline:
                 image["riskLevel"] = level_map.get(risk_level, "none")
                 image["riskTypes"] = alert.get("riskTypes", [])
             else:
-                image.setdefault("riskLevel", "none")
+                image.setdefault("riskLevel", "gray")
                 image.setdefault("riskLevelRaw", "none")
 
     def _analyze_groups(
