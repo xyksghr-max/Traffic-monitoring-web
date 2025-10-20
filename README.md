@@ -693,6 +693,38 @@ ss -tulpn | grep :5000
 - 🔌 WebSocket 实时通信
 - 📊 健康检查和监控接口
 
+## 🔧 故障排查
+
+### 前端显示风险为 "none"
+
+如果前端一直显示 "none" 风险，请按以下步骤排查：
+
+1. **检查 API Key 是否设置**
+   ```bash
+   echo $DASHSCOPE_API_KEY
+   ```
+   如果未设置，运行：
+   ```bash
+   export DASHSCOPE_API_KEY="your-api-key-here"
+   ```
+
+2. **查看启动日志**
+   - ✅ 正常: `✅ Dangerous driving analyzer initialized: model=qwen-vl-plus`
+   - 🔴 异常: `🔴 DASHSCOPE_API_KEY not set, LLM analysis DISABLED`
+
+3. **检查配置文件**
+   - 确保 `model_config.yaml` 中 `llm.enabled: true`
+   - 检查 cooldown 设置是否合理
+
+4. **查看运行时日志**
+   - `LLM analysis triggered` - LLM 正在分析
+   - `LLM analysis skipped: cooldown active` - 正常，使用缓存结果
+   - `LLM analysis skipped: no group images` - 交通稀疏，正常
+
+📖 **详细排查指南**: 
+- [QUICK_START_LLM_DEBUG.md](docs/QUICK_START_LLM_DEBUG.md) - 快速诊断
+- [LLM_RISK_DETECTION_GUIDE.md](docs/LLM_RISK_DETECTION_GUIDE.md) - 完整故障排查手册
+
 ## 📄 许可证
 
 本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
