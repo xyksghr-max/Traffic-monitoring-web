@@ -77,7 +77,8 @@ def main():
         signal.pause()
         
     except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}", exc_info=True)
+        logger.error("Failed to start scheduler: {}", str(e))
+        logger.exception("Exception details:")
         sys.exit(1)
 
 

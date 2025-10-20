@@ -54,7 +54,8 @@ def main():
         thread.join()
         
     except Exception as e:
-        logger.error(f"Failed to start task generator: {e}", exc_info=True)
+        logger.error("Failed to start task generator: {}", str(e))
+        logger.exception("Exception details:")
         sys.exit(1)
 
 

@@ -43,7 +43,9 @@ class BaseKafkaConsumer:
                 'auto.offset.reset': auto_offset_reset,
                 'enable.auto.commit': auto_commit,
                 'auto.commit.interval.ms': 5000,
-                'max.poll.records': 500,
+                # 'max.poll.records' 不被 librdkafka 支持，已移除
+                # 使用 'queued.max.messages.kbytes' 控制内存消耗
+                'queued.max.messages.kbytes': 65536,  # 64MB
                 'session.timeout.ms': 30000,
                 'heartbeat.interval.ms': 3000,
             })
