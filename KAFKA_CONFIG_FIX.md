@@ -2,6 +2,8 @@
 
 ## 🐛 问题描述
 
+### 问题 1: Consumer 配置错误
+
 运行流处理服务时出现以下错误：
 
 ```
@@ -14,11 +16,23 @@ KafkaError{code=_INVALID_ARG,val=-186,str="No such configuration property: "max.
 KeyError: 'code=_INVALID_ARG,val=-186,str="No such configuration property'
 ```
 
+### 问题 2: Producer 幂等性配置错误
+
+```
+KafkaError{code=_INVALID_ARG,val=-186,str="Failed to create producer: `acks` must be set to `all` when `enable.idempotence` is true"}
+```
+
+### 问题 3: Windows 平台兼容性问题
+
+```
+AttributeError: module 'signal' has no attribute 'pause'
+```
+
 ---
 
 ## 🔍 问题原因
 
-### 1. Kafka 配置错误
+### 1. Kafka Consumer 配置错误
 
 **问题**: `confluent-kafka` Python 客户端基于 `librdkafka`，不支持 Java Kafka 客户端的 `max.poll.records` 配置项。
 
@@ -29,18 +43,19 @@ KeyError: 'code=_INVALID_ARG,val=-186,str="No such configuration property'
 | `max.poll.records` | ✅ 支持 | ❌ **不支持** |
 | `queued.max.messages.kbytes` | ❌ 不支持 | ✅ 支持 |
 
-### 2. Loguru 日志格式化错误
+### 2. Producer 幂等性配置要求
 
-**问题**: Kafka 错误消息中包含花括号 `{}`，被 loguru 误认为是格式化占位符。
+**问题**: 当启用 `enable.idempotence=true` 时，Kafka 要求 `acks` 必须设置为 `all`（或 `-1`）。
 
-```python
-# ❌ 错误写法（会导致 KeyError）
-logger.error(f"Failed to start: {e}", exc_info=True)
+**说明**:
+- `acks=1`: 只等待 leader 确认（**不满足幂等性要求**）
+- `acks=all` 或 `acks=-1`: 等待所有副本确认（**满足幂等性要求**）
 
-# ✅ 正确写法
-logger.error("Failed to start: {}", str(e))
-logger.exception("Exception details:")
-```
+### 3. signal.pause() 不支持 Windows
+
+**问题**: `signal.pause()` 是 Unix/Linux 特有的系统调用，Windows 不支持。
+
+**解决方案**: 使用跨平台的 `time.sleep()` 循环代替。
 
 ---
 
@@ -77,7 +92,63 @@ self.consumer = Consumer({
 })
 ```
 
-### 2. 修改启动脚本的日志处理
+### 2. 修改 `algo/kafka/detection_producer.py` ✅
+
+**原代码** (❌ 错误):
+```python
+self.producer = Producer({
+    'bootstrap.servers': bootstrap_servers,
+    'compression.type': 'snappy',
+    'linger.ms': 10,
+    'batch.size': 32768,
+    'acks': 1,  # ❌ 幂等性要求 acks=all
+    'retries': 3,
+    'retry.backoff.ms': 100,
+    'enable.idempotence': True,
+})
+```
+
+**修复后** (✅ 正确):
+```python
+self.producer = Producer({
+    'bootstrap.servers': bootstrap_servers,
+    'compression.type': 'snappy',
+    'linger.ms': 10,
+    'batch.size': 32768,
+    'acks': 'all',  # ✅ 等待所有副本确认
+    'retries': 3,
+    'retry.backoff.ms': 100,
+    'enable.idempotence': True,
+})
+```
+
+### 3. 修改 `scripts/start_scheduler.py` (Windows 兼容) ✅
+
+**原代码** (❌ 错误):
+```python
+logger.success("=== LLM Task Scheduler started successfully ===")
+logger.info("Press Ctrl+C to stop")
+
+# 保持运行
+signal.pause()  # ❌ Windows 不支持
+```
+
+**修复后** (✅ 正确):
+```python
+logger.success("=== LLM Task Scheduler started successfully ===")
+logger.info("Press Ctrl+C to stop")
+
+# 保持运行（跨平台兼容）
+import time
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    logger.info("Received keyboard interrupt")
+    scheduler.stop()
+```
+
+### 4. 修改启动脚本的日志处理
 
 修改以下文件：
 - `scripts/start_task_generator.py`
@@ -252,6 +323,8 @@ logger.exception("Details:")  # 自动包含堆栈跟踪
 
 - [x] 移除 `max.poll.records` 配置
 - [x] 添加 `queued.max.messages.kbytes` 配置
+- [x] **修复 Producer `acks` 配置（幂等性要求）** 🆕
+- [x] **修复 Windows `signal.pause()` 兼容性问题** 🆕
 - [x] 修复 `start_task_generator.py` 日志格式化
 - [x] 修复 `start_scheduler.py` 日志格式化
 - [x] 修复 `start_result_aggregator.py` 日志格式化
@@ -264,11 +337,51 @@ logger.exception("Details:")  # 自动包含堆栈跟踪
 
 问题已修复！主要改动：
 
-1. **配置修复**: 使用 librdkafka 兼容的配置项
-2. **日志修复**: 正确处理异常消息中的特殊字符
-3. **文档完善**: 提供详细的配置对照表和最佳实践
+1. **Consumer 配置修复**: 使用 librdkafka 兼容的配置项
+2. **Producer 幂等性修复**: 设置 `acks=all` 满足幂等性要求
+3. **Windows 兼容性修复**: 使用 `time.sleep()` 替代 `signal.pause()`
+4. **日志格式化修复**: 正确处理异常消息中的特殊字符
+5. **文档完善**: 提供详细的配置对照表和最佳实践
 
-现在可以正常启动流处理服务了！🚀
+现在可以在 **Windows** 和 **Linux** 平台正常启动流处理服务了！🚀
+
+---
+
+### 🔑 关键知识点
+
+#### Kafka 幂等性配置
+
+启用幂等性时的要求：
+```python
+{
+    'enable.idempotence': True,
+    'acks': 'all',  # 必须！可以是 'all' 或 -1
+    'retries': 3,   # 推荐设置重试
+}
+```
+
+**为什么需要 `acks=all`？**
+
+幂等性保证消息不会重复，但需要所有副本确认才能确保消息不丢失：
+- `acks=0`: 不等待确认（可能丢失）❌
+- `acks=1`: 只等待 leader 确认（leader 崩溃时可能丢失）❌  
+- `acks=all`: 等待所有同步副本确认（最安全）✅
+
+#### 跨平台信号处理
+
+```python
+# ❌ 仅 Unix/Linux
+import signal
+signal.pause()
+
+# ✅ 跨平台（Windows + Unix/Linux）
+import time
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    cleanup()
+```
 
 ---
 

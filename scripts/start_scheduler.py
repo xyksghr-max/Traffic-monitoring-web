@@ -73,8 +73,14 @@ def main():
         logger.success("=== LLM Task Scheduler started successfully ===")
         logger.info("Press Ctrl+C to stop")
         
-        # 保持运行
-        signal.pause()
+        # 保持运行（跨平台兼容）
+        import time
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt")
+            scheduler.stop()
         
     except Exception as e:
         logger.error("Failed to start scheduler: {}", str(e))

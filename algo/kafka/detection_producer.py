@@ -36,7 +36,7 @@ class DetectionResultProducer:
                 'compression.type': 'snappy',
                 'linger.ms': 10,  # 批处理延迟 10ms
                 'batch.size': 32768,  # 32KB 批处理大小
-                'acks': 1,  # 等待 leader 确认
+                'acks': 'all',  # 等待所有副本确认（幂等性要求）
                 'retries': 3,  # 重试 3 次
                 'retry.backoff.ms': 100,
                 'enable.idempotence': True,  # 幂等性
