@@ -15,6 +15,15 @@ from routes.health import bp as health_bp, bp_public as health_public_bp
 from routes.ws import register_ws_routes
 from utils.logger import configure_logging
 
+# Prometheus metrics (optional)
+try:
+    from prometheus_client import make_wsgi_app
+    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
+    logger.warning("prometheus_client not installed, /metrics endpoint will not be available")
+
 sock = Sock()
 
 
@@ -43,6 +52,16 @@ def create_app() -> Flask:
     # Attach WebSocket routes
     sock.init_app(app)
     register_ws_routes(sock)
+    
+    # Add Prometheus metrics endpoint (optional)
+    if PROMETHEUS_AVAILABLE:
+        # Mount Prometheus metrics at /metrics
+        app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+            '/metrics': make_wsgi_app()
+        })
+        logger.info("Prometheus metrics endpoint enabled at /metrics")
+    else:
+        logger.warning("Prometheus metrics endpoint disabled (prometheus_client not installed)")
 
     logger.info(
         "Algorithm service initialised on {}:{}",
