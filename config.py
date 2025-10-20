@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     llm_model: str = Field("qwen-vl-plus", description="Default multimodal model identifier")
     llm_timeout: int = Field(30, description="Timeout for LLM requests in seconds")
     llm_max_retry: int = Field(2, description="Maximum retry count for LLM calls")
+    
+    # Streaming mode configuration
+    enable_kafka_streaming: bool = Field(False, description="Enable Kafka streaming for async LLM processing")
+    kafka_bootstrap_servers: str = Field("localhost:9092", description="Kafka broker addresses")
 
     allowed_classes: List[str] = Field(
         default_factory=lambda: [

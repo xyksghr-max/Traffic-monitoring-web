@@ -252,8 +252,8 @@ python scripts/test_streaming_pipeline.py --mode e2e --duration 60
 ### 监控
 
 - **Kafka UI**: http://localhost:8080
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3000
+- **Prometheus**: http://localhost:9100
+- **Grafana**: http://localhost:3100
 
 ### 停止服务
 

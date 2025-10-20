@@ -195,8 +195,8 @@ python scripts/verify_api_keys.py
 启动基础设施后，可以访问：
 
 - **Kafka UI**: http://localhost:8080
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3000 (admin/admin)
+- **Prometheus**: http://localhost:9100
+- **Grafana**: http://localhost:3100 (admin/admin)
 - **Redis**: localhost:6379
 
 ## 🔍 验证部署
@@ -214,7 +214,7 @@ kafka-topics --bootstrap-server localhost:9092 --list
 redis-cli ping
 
 # 检查 Prometheus 采集目标
-curl http://localhost:9090/api/v1/targets
+curl http://localhost:9100/api/v1/targets
 ```
 
 ## 📝 下一步

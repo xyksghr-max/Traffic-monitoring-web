@@ -15,6 +15,18 @@ from algo.rtsp_detect.session_manager import SessionManager
 from algo.rtsp_detect.yolo_detector import YoloDetector
 from config import settings
 
+# Kafka integration (optional)
+KAFKA_PRODUCER = None
+if settings.enable_kafka_streaming:
+    try:
+        from algo.kafka.detection_producer import DetectionResultProducer
+        KAFKA_PRODUCER = DetectionResultProducer(settings.kafka_bootstrap_servers)
+        logger.info("Kafka producer initialized for streaming mode")
+    except ImportError:
+        logger.warning("Kafka module not available, streaming mode disabled")
+    except Exception as exc:
+        logger.error("Failed to initialize Kafka producer: %s", exc)
+
 WELCOME_MESSAGE: Dict[str, Any] = {
     "type": "connection_ack",
     "data": {
@@ -71,6 +83,8 @@ def register_ws_routes(sock: Sock) -> None:
             settings.frame_interval,
             group_analyzer=GROUP_ANALYZER,
             dangerous_analyzer_factory=_create_dangerous_analyzer,
+            kafka_producer=KAFKA_PRODUCER,
+            enable_kafka=settings.enable_kafka_streaming,
         )
         send_lock = threading.Lock()
         connection_closed = threading.Event()

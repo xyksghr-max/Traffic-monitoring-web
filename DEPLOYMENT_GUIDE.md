@@ -167,8 +167,8 @@ tail -f logs/result_aggregator.log
 ### 访问监控面板
 
 - **Kafka UI**: http://localhost:8080
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3000 (admin/admin)
+- **Prometheus**: http://localhost:9100
+- **Grafana**: http://localhost:3100 (admin/admin)
 
 ### 检查 Kafka Topics
 

@@ -13,6 +13,14 @@ from algo.rtsp_detect.pipeline import DetectionPipeline
 from algo.rtsp_detect.video_stream import VideoStream
 from algo.rtsp_detect.yolo_detector import YoloDetector
 
+# Kafka integration (optional)
+try:
+    from algo.kafka.detection_producer import DetectionResultProducer
+    KAFKA_AVAILABLE = True
+except ImportError:
+    KAFKA_AVAILABLE = False
+    logger.warning("Kafka module not available for SessionManager")
+
 
 class CameraSession:
     def __init__(
@@ -38,11 +46,22 @@ class SessionManager:
         frame_interval: float,
         group_analyzer: Optional[GroupAnalyzer] = None,
         dangerous_analyzer_factory: Optional[Callable[[], DangerousDrivingAnalyzer]] = None,
+        kafka_producer: Optional['DetectionResultProducer'] = None,
+        enable_kafka: bool = False,
     ) -> None:
         self.detector = detector
         self.frame_interval = frame_interval
         self.group_analyzer = group_analyzer
         self.dangerous_analyzer_factory = dangerous_analyzer_factory
+        self.kafka_producer = kafka_producer
+        self.enable_kafka = enable_kafka and KAFKA_AVAILABLE
+        
+        if self.enable_kafka and not self.kafka_producer:
+            logger.warning("Kafka enabled but no producer provided to SessionManager")
+            self.enable_kafka = False
+        elif self.enable_kafka:
+            logger.info("SessionManager initialized with Kafka streaming support")
+        
         self._sessions: Dict[int, CameraSession] = {}
         self._lock = threading.Lock()
 
@@ -62,6 +81,8 @@ class SessionManager:
                 callback,
                 group_analyzer=self.group_analyzer,
                 dangerous_analyzer=self.dangerous_analyzer_factory() if self.dangerous_analyzer_factory else None,
+                kafka_producer=self.kafka_producer,
+                enable_kafka=self.enable_kafka,
             )
             pipeline.start()
             self._sessions[camera_id] = CameraSession(camera_id, stream, pipeline)

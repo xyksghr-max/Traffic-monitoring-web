@@ -18,6 +18,14 @@ from algo.rtsp_detect.video_stream import VideoStream
 from algo.rtsp_detect.yolo_detector import YoloDetector
 from utils.image import encode_frame_to_base64
 
+# Kafka integration (optional)
+try:
+    from algo.kafka.detection_producer import DetectionResultProducer
+    KAFKA_AVAILABLE = True
+except ImportError:
+    KAFKA_AVAILABLE = False
+    logger.warning("Kafka module not available, streaming mode disabled")
+
 
 DetectionCallback = Callable[[Dict], None]
 
@@ -34,6 +42,8 @@ class DetectionPipeline:
         callback: DetectionCallback,
         group_analyzer: Optional[GroupAnalyzer] = None,
         dangerous_analyzer: Optional[DangerousDrivingAnalyzer] = None,
+        kafka_producer: Optional['DetectionResultProducer'] = None,
+        enable_kafka: bool = False,
     ) -> None:
         self.camera_id = camera_id
         self.stream = stream
@@ -43,6 +53,18 @@ class DetectionPipeline:
         self.group_analyzer = group_analyzer
         self.dangerous_analyzer = dangerous_analyzer
         self.risk_manager = RiskAlertManager()
+        
+        # Kafka integration (optional)
+        self.kafka_producer = kafka_producer
+        self.enable_kafka = enable_kafka and KAFKA_AVAILABLE
+        if self.enable_kafka and not self.kafka_producer:
+            logger.warning(
+                "Kafka enabled but no producer provided for camera %s, streaming mode disabled",
+                self.camera_id
+            )
+            self.enable_kafka = False
+        elif self.enable_kafka:
+            logger.info("Kafka streaming enabled for camera %s", self.camera_id)
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -62,6 +84,15 @@ class DetectionPipeline:
             self._thread.join(timeout=2.0)
         self._thread = None
         self.stream.stop()
+        
+        # Close Kafka producer if enabled
+        if self.enable_kafka and self.kafka_producer:
+            try:
+                self.kafka_producer.close()
+                logger.info("Kafka producer closed for camera %s", self.camera_id)
+            except Exception as exc:
+                logger.warning("Failed to close Kafka producer for camera %s: %s", self.camera_id, exc)
+        
         logger.info("Detection pipeline stopped for camera %s", self.camera_id)
 
     def _run(self) -> None:
@@ -169,6 +200,34 @@ class DetectionPipeline:
                 },
             }
             self.callback(payload)
+            
+            # Send detection result to Kafka for async LLM processing
+            if self.enable_kafka and self.kafka_producer:
+                try:
+                    kafka_payload = {
+                        "cameraId": self.camera_id,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "frameTimestamp": datetime.utcnow().timestamp(),
+                        "detectedObjects": detected_objects,
+                        "trafficGroups": normalized_groups,
+                        "groupImages": llm_group_images,  # Use LLM-ready format
+                        "imageWidth": width,
+                        "imageHeight": height,
+                        "detectionLatency": detection_time,
+                        "modelType": self.detector.model_type,
+                    }
+                    self.kafka_producer.send(kafka_payload, str(self.camera_id))
+                    logger.debug(
+                        "Sent detection result to Kafka for camera %s with %d groups",
+                        self.camera_id,
+                        len(normalized_groups)
+                    )
+                except Exception as kafka_exc:
+                    logger.error(
+                        "Failed to send detection to Kafka for camera %s: %s",
+                        self.camera_id,
+                        kafka_exc
+                    )
 
             elapsed = time.time() - detection_start
             wait_time = max(self.frame_interval - elapsed, 0.05)

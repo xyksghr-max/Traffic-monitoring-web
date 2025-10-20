@@ -3,7 +3,7 @@
 # Prometheus 指标配置
 prometheus:
   enabled: true
-  port: 9091
+  port: 9100
   path: "/metrics"
   
   # 指标前缀
@@ -18,7 +18,7 @@ prometheus:
 # Grafana 配置
 grafana:
   enabled: true
-  url: "http://localhost:3000"
+  url: "http://localhost:3100"
   api_key: ""  # Grafana API Key
   
   # 自动创建仪表盘
@@ -28,7 +28,7 @@ grafana:
   datasources:
     - name: "Prometheus"
       type: "prometheus"
-      url: "http://localhost:9090"
+      url: "http://localhost:9100"
       is_default: true
 
 # 告警配置
