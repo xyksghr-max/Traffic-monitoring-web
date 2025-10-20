@@ -216,9 +216,9 @@ class DetectionPipeline:
                         "detectionLatency": detection_time,
                         "modelType": self.detector.model_type,
                     }
-                    self.kafka_producer.send(kafka_payload, str(self.camera_id))
+                    self.kafka_producer.send(kafka_payload, self.camera_id)
                     logger.debug(
-                        "Sent detection result to Kafka for camera %s with %d groups",
+                        "Sent detection result to Kafka for camera {} with {} groups",
                         self.camera_id,
                         len(normalized_groups)
                     )
@@ -243,6 +243,8 @@ class DetectionPipeline:
         alert_index: Dict[int, Dict[str, Any]] = {}
         for alert in alerts:
             idx = alert.get("groupIndex")
+            if idx is None:
+                continue
             try:
                 idx_int = int(idx)
             except (TypeError, ValueError):
@@ -251,8 +253,10 @@ class DetectionPipeline:
 
         for group in groups:
             raw_idx = group.get("groupIndex")
+            if raw_idx is None:
+                continue
             try:
-                idx = int(raw_idx or 0)
+                idx = int(raw_idx)
             except (TypeError, ValueError):
                 idx = 0
             alert = alert_index.get(idx)

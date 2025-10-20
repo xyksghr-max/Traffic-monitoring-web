@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 from pathlib import Path
 import sys
 
 import redis
 from loguru import logger
+
+if TYPE_CHECKING:
+    from redis import Redis
 
 # 添加项目根目录到路径
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -31,7 +34,7 @@ class ResultAggregator:
     """
     
     def __init__(
-        self,
+        self, 
         kafka_bootstrap: str,
         redis_host: str = 'localhost',
         redis_port: int = 6379,
@@ -49,7 +52,7 @@ class ResultAggregator:
             enable_redis: 是否启用 Redis
         """
         self.enable_redis = enable_redis
-        self.redis_client: Optional[redis.Redis] = None
+        self.redis_client: Optional[Redis] = None
         
         # 初始化 Redis
         if enable_redis:

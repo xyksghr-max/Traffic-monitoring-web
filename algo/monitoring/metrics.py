@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Optional
 from prometheus_client import Counter, Histogram, Gauge, Info
 from loguru import logger
 
@@ -194,7 +195,7 @@ def record_detection(camera_id: str, model_type: str, latency: float, num_object
     traffic_groups_total.labels(camera_id=camera_id).inc(num_groups)
 
 
-def record_kafka_send(topic: str, camera_id: str, success: bool = True, error_type: str = None):
+def record_kafka_send(topic: str, camera_id: str, success: bool = True, error_type: Optional[str] = None):
     """Record Kafka send metrics."""
     if success:
         kafka_messages_sent.labels(topic=topic, camera_id=camera_id).inc()

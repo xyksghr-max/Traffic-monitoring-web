@@ -58,6 +58,10 @@ class SimpleTaskGenerator:
         try:
             message_id = data.get('messageId')
             camera_id = data.get('cameraId')
+            if camera_id is None:
+                logger.warning("Detection result missing cameraId, skipping")
+                return
+                
             timestamp = data.get('timestamp')
             detected_objects = data.get('detectedObjects', [])
             traffic_groups = data.get('trafficGroups', [])
