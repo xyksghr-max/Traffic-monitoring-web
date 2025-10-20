@@ -18,6 +18,14 @@ from algo.rtsp_detect.video_stream import VideoStream
 from algo.rtsp_detect.yolo_detector import YoloDetector
 from utils.image import encode_frame_to_base64
 
+# Prometheus metrics
+from algo.monitoring.metrics import (
+    record_detection,
+    detected_objects_total,
+    record_kafka_send,
+    active_cameras,
+)
+
 # Kafka integration (optional)
 try:
     from algo.kafka.detection_producer import DetectionResultProducer
@@ -76,6 +84,10 @@ class DetectionPipeline:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, name=f"DetectionPipeline-{self.camera_id}", daemon=True)
         self._thread.start()
+        
+        # Update active cameras metric
+        active_cameras.inc()
+        
         logger.info("Detection pipeline started for camera {}", self.camera_id)
 
     def stop(self) -> None:
@@ -84,6 +96,9 @@ class DetectionPipeline:
             self._thread.join(timeout=2.0)
         self._thread = None
         self.stream.stop()
+        
+        # Update active cameras metric
+        active_cameras.dec()
         
         # Close Kafka producer if enabled
         if self.enable_kafka and self.kafka_producer:
@@ -106,11 +121,45 @@ class DetectionPipeline:
             detection = self.detector.detect(frame)
             detection_time = detection.get("latency", time.time() - detection_start)
             detected_objects: Sequence[Dict] = detection.get("objects", [])
+            
+            # Record Prometheus metrics for detection
+            camera_id_str = str(self.camera_id)
+            model_type = self.detector.model_type
+            num_objects = len(detected_objects)
+            
+            # Record detection metrics before grouping
+            try:
+                record_detection(
+                    camera_id=camera_id_str,
+                    model_type=model_type,
+                    latency=detection_time,
+                    num_objects=num_objects,
+                    num_groups=0  # Will be updated after grouping
+                )
+                
+                # Record individual object detections
+                for obj in detected_objects:
+                    class_name = obj.get("class", "unknown")
+                    detected_objects_total.labels(
+                        camera_id=camera_id_str,
+                        class_name=class_name
+                    ).inc()
+            except Exception as metrics_exc:
+                logger.debug("Failed to record detection metrics: {}", metrics_exc)
 
             # Preserve original frame for LLM analysis and group cropping
             raw_frame = frame.copy()
 
             groups, group_images = self._analyze_groups(raw_frame, detected_objects)
+            
+            # Update group count in metrics
+            num_groups = len(groups)
+            if num_groups > 0:
+                try:
+                    from algo.monitoring.metrics import traffic_groups_total
+                    traffic_groups_total.labels(camera_id=camera_id_str).inc(num_groups)
+                except Exception as metrics_exc:
+                    logger.debug("Failed to record group metrics: {}", metrics_exc)
 
             try:
                 raw_data_uri, _ = encode_frame_to_base64(raw_frame)
@@ -217,12 +266,27 @@ class DetectionPipeline:
                         "modelType": self.detector.model_type,
                     }
                     self.kafka_producer.send(kafka_payload, self.camera_id)
+                    
+                    # Record Kafka metrics
+                    record_kafka_send(
+                        topic='detection-results',
+                        camera_id=camera_id_str,
+                        success=True
+                    )
+                    
                     logger.debug(
                         "Sent detection result to Kafka for camera {} with {} groups",
                         self.camera_id,
                         len(normalized_groups)
                     )
                 except Exception as kafka_exc:
+                    # Record Kafka error
+                    record_kafka_send(
+                        topic='detection-results',
+                        camera_id=camera_id_str,
+                        success=False,
+                        error_type=type(kafka_exc).__name__
+                    )
                     logger.error(
                         "Failed to send detection to Kafka for camera %s: %s",
                         self.camera_id,
