@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
+from dotenv import load_dotenv
 from loguru import logger
 from openai import OpenAI
 
