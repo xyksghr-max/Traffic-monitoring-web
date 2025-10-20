@@ -52,10 +52,17 @@ class DangerousDrivingAnalyzer:
 
         self._last_call_ts: float = 0.0
 
-    def should_analyze(self, detections: Sequence[Dict], groups: Sequence[Dict]) -> bool:
+    def should_analyze(
+        self,
+        detections: Sequence[Dict],
+        groups: Sequence[Dict],
+        group_images: Sequence[Dict],
+    ) -> bool:
         if not self.enabled or not self._client:
             return False
         if time.time() - self._last_call_ts < self.config.cooldown_seconds:
+            return False
+        if not group_images:
             return False
         if len(detections) >= 2:
             return True
@@ -65,7 +72,7 @@ class DangerousDrivingAnalyzer:
 
     def analyze(
         self,
-        image_data_url: str,
+        group_images: Sequence[Dict],
         detections: Sequence[Dict],
         groups: Sequence[Dict],
     ) -> Dict[str, Any]:
@@ -73,7 +80,25 @@ class DangerousDrivingAnalyzer:
         if not self.enabled or not self._client:
             return self._empty_result(latency=0.0)
 
-        prompt = self._build_prompt(detections, groups)
+        if not group_images:
+            return self._empty_result(latency=0.0)
+
+        prompt = self._build_prompt(detections, groups, group_images)
+
+        content: List[Dict[str, Any]] = []
+        for position, image in enumerate(group_images, start=1):
+            data_uri = image.get("dataUri")
+            if not data_uri:
+                continue
+            group_index = image.get("groupIndex")
+            label = group_index if group_index is not None else position
+            content.append({"type": "text", "text": f"Group image #{position} (groupIndex={label})"})
+            content.append({"type": "image_url", "image_url": {"url": data_uri}})
+        content.append({"type": "text", "text": prompt})
+
+        if not content:
+            return self._empty_result(latency=0.0)
+
         messages = [
             {
                 "role": "system",
@@ -83,10 +108,7 @@ class DangerousDrivingAnalyzer:
             },
             {
                 "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                    {"type": "text", "text": prompt},
-                ],
+                "content": content,
             },
         ]
 
@@ -121,7 +143,12 @@ class DangerousDrivingAnalyzer:
         logger.error("DashScope(OpenAI) call failed after %s attempts", self.config.max_retry + 1)
         return self._empty_result(latency=time.time() - start_time)
 
-    def _build_prompt(self, detections: Sequence[Dict], groups: Sequence[Dict]) -> str:
+    def _build_prompt(
+        self,
+        detections: Sequence[Dict],
+        groups: Sequence[Dict],
+        group_images: Sequence[Dict],
+    ) -> str:
         obj_lines = []
         for det in detections:
             bbox = det.get("bbox", [])
@@ -215,13 +242,22 @@ class DangerousDrivingAnalyzer:
 
         group_lines = [_summarize_group(group) for group in groups]
 
-        summary = "\n".join(obj_lines) or "无检测目标"
-        group_summary = "\n".join(group_lines) or "无对象聚集"
+        mapping_lines: List[str] = []
+        for position, image in enumerate(group_images, start=1):
+            mapping_lines.append(
+                f"- image#{position} -> groupIndex={image.get('groupIndex')} "
+                f"(objects={image.get('objectCount')}, classes={image.get('classes')})"
+            )
+
+        summary = "\n".join(obj_lines) or "No detections"
+        group_summary = "\n".join(group_lines) or "No traffic groups"
+        mapping_summary = "\n".join(mapping_lines) or "No group images"
 
         return (
             f"{DANGEROUS_DRIVING_PROMPT}\n"
-            f"[检测对象]\n{summary}\n"
-            f"[对象群组]\n{group_summary}\n"
+            f"[Group Image Mapping]\n{mapping_summary}\n"
+            f"[Detected Objects]\n{summary}\n"
+            f"[Traffic Groups]\n{group_summary}\n"
         )
 
     @staticmethod
