@@ -88,7 +88,27 @@ class DetectionPipeline:
                 time.sleep(self.frame_interval)
                 continue
 
-            llm_result = self._analyze_dangerous_driving(raw_data_uri, detected_objects, groups)
+            llm_group_images: list[Dict[str, Any]] = []
+            for image in group_images:
+                base64_part = image.get("imageBase64")
+                if not base64_part:
+                    continue
+                llm_group_images.append(
+                    {
+                        "groupIndex": image.get("groupIndex"),
+                        "objectCount": image.get("objectCount"),
+                        "classes": image.get("classes"),
+                        "dataUri": f"data:image/jpeg;base64,{base64_part}",
+                    }
+                )
+
+            logger.debug(
+                "Camera %s: prepared %d group crops for LLM analysis",
+                self.camera_id,
+                len(llm_group_images),
+            )
+
+            llm_result = self._analyze_dangerous_driving(llm_group_images, detected_objects, groups)
 
             # Normalize traffic group fields to include requested aliases while preserving originals
             normalized_groups: list[Dict[str, Any]] = []
@@ -222,7 +242,7 @@ class DetectionPipeline:
 
     def _analyze_dangerous_driving(
         self,
-        image_data_url: str,
+        group_image_data: Sequence[Dict[str, Any]],
         detections: Sequence[Dict],
         groups: Sequence[Dict],
     ) -> Dict[str, Any]:
@@ -235,7 +255,7 @@ class DetectionPipeline:
                 "model": None,
             }
         try:
-            if not self.dangerous_analyzer.should_analyze(detections, groups):
+            if not self.dangerous_analyzer.should_analyze(detections, groups, group_image_data):
                 return {
                     "hasDangerousDriving": False,
                     "maxRiskLevel": "none",
@@ -243,7 +263,7 @@ class DetectionPipeline:
                     "latency": 0.0,
                     "model": self.dangerous_analyzer.config.model,
                 }
-            return self.dangerous_analyzer.analyze(image_data_url, detections, groups)
+            return self.dangerous_analyzer.analyze(group_image_data, detections, groups)
         except Exception as exc:  # pragma: no cover - robustness
             logger.error("Dangerous driving analysis failed for camera %s: %s", self.camera_id, exc)
             return {
