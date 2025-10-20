@@ -51,10 +51,10 @@ class VideoStream:
 
     def _open_capture(self) -> bool:
         self._release_capture()
-        logger.info("Opening video stream %s", self.name)
+        logger.info("Opening video stream {}", self.name)
         cap = cv2.VideoCapture(self.source)
         if not cap.isOpened():
-            logger.warning("Failed to open video stream %s", self.name)
+            logger.warning("Failed to open video stream {}", self.name)
             cap.release()
             return False
         self._capture = cap
@@ -77,7 +77,7 @@ class VideoStream:
         while not self._stop_event.is_set():
             if self._capture is None or not self._capture.isOpened():
                 if self.max_retries is not None and retries >= self.max_retries:
-                    logger.error("Max retries reached for stream %s", self.name)
+                    logger.error("Max retries reached for stream {}", self.name)
                     time.sleep(self.reconnect_interval)
                     continue
                 if not self._open_capture():
@@ -92,7 +92,7 @@ class VideoStream:
 
             ok, frame = self._capture.read()
             if not ok:
-                logger.warning("Frame read failed for stream %s, reconnecting", self.name)
+                logger.warning("Frame read failed for stream {}, reconnecting", self.name)
                 self._release_capture()
                 time.sleep(self.reconnect_interval)
                 continue

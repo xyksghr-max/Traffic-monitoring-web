@@ -99,7 +99,7 @@ def register_ws_routes(sock: Sock) -> None:
             try:
                 payload = json.dumps(message)
             except TypeError as exc:
-                logger.error("Failed to serialise WebSocket payload: %s", exc)
+                logger.error("Failed to serialise WebSocket payload: {}", exc)
                 return
             try:
                 with send_lock:
@@ -118,7 +118,7 @@ def register_ws_routes(sock: Sock) -> None:
                     logger.info("WebSocket client disconnected")
                     break
 
-                logger.debug("Received WS message: %s", raw_message)
+                logger.debug("Received WS message: {}", raw_message)
 
                 try:
                     message = json.loads(raw_message)
@@ -186,7 +186,7 @@ def register_ws_routes(sock: Sock) -> None:
                     )
                     continue
 
-                logger.warning("Unsupported message type received: %s", msg_type)
+                logger.warning("Unsupported message type received: {}", msg_type)
 
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.exception("WebSocket handler error: %s", exc)

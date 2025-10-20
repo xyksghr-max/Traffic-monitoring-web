@@ -29,7 +29,7 @@ class YoloDetector:
 
         try:
             if weights_path.exists():
-                logger.info("Loading YOLO weights from %s", weights_path)
+                logger.info("Loading YOLO weights from {}", weights_path)
                 self.model = YOLO(str(weights_path))
             else:
                 logger.warning(
@@ -49,7 +49,7 @@ class YoloDetector:
             try:
                 self.model.to(device)
             except Exception as exc:  # pragma: no cover
-                logger.warning("Failed to move YOLO model to %s: %s", device, exc)
+                logger.warning("Failed to move YOLO model to {}: {}", device, exc)
             try:
                 self.model.fuse()
             except Exception:
@@ -73,7 +73,7 @@ class YoloDetector:
     @staticmethod
     def _load_config(path: Path) -> Dict:
         if not path.exists():
-            logger.warning("Model config %s does not exist; using defaults.", path)
+            logger.warning("Model config {} does not exist; using defaults.", path)
             return {}
         with path.open("r", encoding="utf-8") as fh:
             return yaml.safe_load(fh) or {}

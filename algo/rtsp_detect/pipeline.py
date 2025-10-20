@@ -64,7 +64,7 @@ class DetectionPipeline:
             )
             self.enable_kafka = False
         elif self.enable_kafka:
-            logger.info("Kafka streaming enabled for camera %s", self.camera_id)
+            logger.info("Kafka streaming enabled for camera {}", self.camera_id)
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -76,7 +76,7 @@ class DetectionPipeline:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, name=f"DetectionPipeline-{self.camera_id}", daemon=True)
         self._thread.start()
-        logger.info("Detection pipeline started for camera %s", self.camera_id)
+        logger.info("Detection pipeline started for camera {}", self.camera_id)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -89,11 +89,11 @@ class DetectionPipeline:
         if self.enable_kafka and self.kafka_producer:
             try:
                 self.kafka_producer.close()
-                logger.info("Kafka producer closed for camera %s", self.camera_id)
+                logger.info("Kafka producer closed for camera {}", self.camera_id)
             except Exception as exc:
-                logger.warning("Failed to close Kafka producer for camera %s: %s", self.camera_id, exc)
+                logger.warning("Failed to close Kafka producer for camera {}: {}", self.camera_id, exc)
         
-        logger.info("Detection pipeline stopped for camera %s", self.camera_id)
+        logger.info("Detection pipeline stopped for camera {}", self.camera_id)
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -115,7 +115,7 @@ class DetectionPipeline:
             try:
                 raw_data_uri, _ = encode_frame_to_base64(raw_frame)
             except ValueError as exc:
-                logger.warning("Failed to encode raw frame for camera %s: %s", self.camera_id, exc)
+                logger.warning("Failed to encode raw frame for camera {}: {}", self.camera_id, exc)
                 time.sleep(self.frame_interval)
                 continue
 
@@ -164,7 +164,7 @@ class DetectionPipeline:
             try:
                 rendered_data_uri, _ = encode_frame_to_base64(rendered_frame)
             except ValueError as exc:
-                logger.warning("Failed to encode rendered frame for camera %s: %s", self.camera_id, exc)
+                logger.warning("Failed to encode rendered frame for camera {}: {}", self.camera_id, exc)
                 time.sleep(self.frame_interval)
                 continue
 
@@ -296,7 +296,7 @@ class DetectionPipeline:
             groups, images = self.group_analyzer.analyze(frame, detections)
             return groups, images
         except Exception as exc:  # pragma: no cover - robustness
-            logger.error("Group analysis failed for camera %s: %s", self.camera_id, exc)
+            logger.error("Group analysis failed for camera {}: {}", self.camera_id, exc)
             return [], []
 
     def _analyze_dangerous_driving(
@@ -324,7 +324,7 @@ class DetectionPipeline:
                 }
             return self.dangerous_analyzer.analyze(group_image_data, detections, groups)
         except Exception as exc:  # pragma: no cover - robustness
-            logger.error("Dangerous driving analysis failed for camera %s: %s", self.camera_id, exc)
+            logger.error("Dangerous driving analysis failed for camera {}: {}", self.camera_id, exc)
             return {
                 "hasDangerousDriving": False,
                 "maxRiskLevel": "none",

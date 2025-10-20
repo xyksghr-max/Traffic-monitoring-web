@@ -68,7 +68,7 @@ class SessionManager:
     def start_session(self, camera_id: int, source: str, callback: Callable[[Dict], None]) -> None:
         with self._lock:
             if camera_id in self._sessions:
-                logger.info("Camera %s already has an active session; restarting", camera_id)
+                logger.info("Camera {} already has an active session; restarting", camera_id)
                 self._sessions[camera_id].stop()
                 del self._sessions[camera_id]
 
@@ -92,7 +92,7 @@ class SessionManager:
             session = self._sessions.pop(camera_id, None)
         if session:
             session.stop()
-            logger.info("Stopped session for camera %s", camera_id)
+            logger.info("Stopped session for camera {}", camera_id)
 
     def stop_all(self) -> None:
         with self._lock:

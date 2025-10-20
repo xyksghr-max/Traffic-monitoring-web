@@ -45,10 +45,10 @@ class DangerousDrivingAnalyzer:
             self.enabled = False
         else:
             try:
-                self._client = OpenAI(api_key=api_key, base_url=config.base_url)
-            except Exception as exc:  # pragma: no cover - client init failure
-                logger.error("Failed to initialise OpenAI-compatible client: %s", exc)
-                self.enabled = False
+                self.client = OpenAI(api_key=api_key, base_url=base_url)
+            except Exception as exc:
+                logger.error("Failed to initialise OpenAI-compatible client: {}", exc)
+                raise
 
         self._last_call_ts: float = 0.0
 
@@ -122,13 +122,13 @@ class DangerousDrivingAnalyzer:
                     timeout=self.config.timeout,
                 )
             except Exception as exc:  # pragma: no cover - network failure
-                logger.error("DashScope(OpenAI) call failed: %s", exc)
+                logger.error("DashScope(OpenAI) call failed: {}", exc)
                 time.sleep(1.0)
                 continue
 
             choices = response.choices or []
             if not choices:
-                logger.warning("DashScope(OpenAI) returned empty choices: %s", response)
+                logger.warning("DashScope(OpenAI) returned empty choices: {}", response)
                 time.sleep(1.0)
                 continue
 
@@ -140,7 +140,7 @@ class DangerousDrivingAnalyzer:
             self._last_call_ts = time.time()
             return parsed
 
-        logger.error("DashScope(OpenAI) call failed after %s attempts", self.config.max_retry + 1)
+        logger.error("DashScope(OpenAI) call failed after {} attempts", self.config.max_retry + 1)
         return self._empty_result(latency=time.time() - start_time)
 
     def _build_prompt(
@@ -403,7 +403,7 @@ class DangerousDrivingAnalyzer:
         try:
             return json.loads(candidate)
         except json.JSONDecodeError:
-            logger.debug("Failed to parse LLM JSON from candidate: %s", candidate)
+            logger.debug("Failed to parse LLM JSON from candidate: {}", candidate)
             return None
 
     def _empty_result(self, latency: float, raw_text: str | None = None) -> Dict[str, Any]:
