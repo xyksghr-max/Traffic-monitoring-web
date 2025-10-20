@@ -3,7 +3,7 @@
 
 api_keys:
   # Key 1
-  - key: "sk-your-dashscope-key-1"
+  - key: "sk-7f00fc6760b64e12a813857fc3c42a3d"
     key_id: "key_1"
     qps_limit: 10           # 每秒请求数限制
     rpm_limit: 300          # 每分钟请求数限制
@@ -15,7 +15,7 @@ api_keys:
     key_id: "key_2"
     qps_limit: 10
     rpm_limit: 300
-    enabled: true
+    enabled: false
     priority: 1
     
   # Key 3
@@ -23,7 +23,7 @@ api_keys:
     key_id: "key_3"
     qps_limit: 10
     rpm_limit: 300
-    enabled: true
+    enabled: false
     priority: 2
   
   # 添加更多 Key...

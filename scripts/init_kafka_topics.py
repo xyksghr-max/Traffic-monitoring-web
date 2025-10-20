@@ -36,6 +36,16 @@ def create_topics(kafka_config):
     
     # 创建 Admin 客户端
     admin_client = AdminClient({'bootstrap.servers': bootstrap_servers})
+
+    # 探测可用 broker 数量，防止副本数配置超出实际能力
+    metadata = admin_client.list_topics(timeout=10)
+    available_brokers = len(metadata.brokers)
+
+    if available_brokers == 0:
+        logger.error("检测不到可用的 Kafka broker，请确认集群已启动")
+        sys.exit(1)
+
+    logger.info(f"检测到 {available_brokers} 个可用 Kafka broker")
     
     # 准备要创建的 Topics
     new_topics = []
@@ -45,11 +55,19 @@ def create_topics(kafka_config):
         partitions = topic_config.get('partitions', 16)
         replication_factor = topic_config.get('replication_factor', 1)
         retention_ms = topic_config.get('retention_ms', 3600000)
+
+        effective_replication_factor = max(1, min(replication_factor, available_brokers))
+
+        if replication_factor > available_brokers:
+            logger.warning(
+                f"配置的副本数 {replication_factor} 超过可用 broker 数 {available_brokers}，"
+                f"已自动降为 {effective_replication_factor}"
+            )
         
         new_topic = NewTopic(
             topic=topic_name,
             num_partitions=partitions,
-            replication_factor=replication_factor,
+            replication_factor=effective_replication_factor,
             config={
                 'retention.ms': str(retention_ms),
                 'compression.type': 'snappy',
@@ -58,7 +76,9 @@ def create_topics(kafka_config):
             }
         )
         new_topics.append(new_topic)
-        logger.info(f"准备创建 Topic: {topic_name} (分区={partitions}, 副本={replication_factor})")
+        logger.info(
+            f"准备创建 Topic: {topic_name} (分区={partitions}, 副本={effective_replication_factor})"
+        )
     
     # 创建 Topics
     futures = admin_client.create_topics(new_topics)
