@@ -45,7 +45,7 @@ class DangerousDrivingAnalyzer:
             self.enabled = False
         else:
             try:
-                self.client = OpenAI(api_key=api_key, base_url=base_url)
+                self.client = OpenAI(api_key=api_key, base_url=self.config.base_url)
             except Exception as exc:
                 logger.error("Failed to initialise OpenAI-compatible client: {}", exc)
                 raise
