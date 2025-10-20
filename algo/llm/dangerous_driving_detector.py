@@ -15,6 +15,14 @@ from openai import OpenAI
 
 from algo.llm.prompts import DANGEROUS_DRIVING_PROMPT
 
+# Import Prometheus metrics (optional)
+try:
+    from algo.monitoring.metrics import record_llm_request
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+    logger.warning("Prometheus metrics not available for LLM monitoring")
+
 load_dotenv() # take environment variables from .env if available
 
 @dataclass
@@ -123,25 +131,72 @@ class DangerousDrivingAnalyzer:
                 )
             except Exception as exc:  # pragma: no cover - network failure
                 logger.error("DashScope(OpenAI) call failed: {}", exc)
+                latency = time.time() - start_time
+                # Record failed request to Prometheus
+                if METRICS_AVAILABLE:
+                    record_llm_request(
+                        model=self.config.model,
+                        api_key_id='default',
+                        latency=latency,
+                        status='error'
+                    )
                 time.sleep(1.0)
                 continue
 
             choices = response.choices or []
             if not choices:
                 logger.warning("DashScope(OpenAI) returned empty choices: {}", response)
+                latency = time.time() - start_time
+                # Record failed request to Prometheus
+                if METRICS_AVAILABLE:
+                    record_llm_request(
+                        model=self.config.model,
+                        api_key_id='default',
+                        latency=latency,
+                        status='empty_response'
+                    )
                 time.sleep(1.0)
                 continue
 
             raw_text = self._extract_text(choices[0].message)
             parsed = self._parse_llm_output(raw_text)
             parsed["rawText"] = raw_text
-            parsed["latency"] = time.time() - start_time
+            latency = time.time() - start_time
+            parsed["latency"] = latency
             parsed["model"] = self.config.model
             self._last_call_ts = time.time()
+            
+            # Record successful request to Prometheus
+            if METRICS_AVAILABLE:
+                # Extract token usage if available
+                usage = getattr(response, 'usage', None)
+                prompt_tokens = getattr(usage, 'prompt_tokens', 0) if usage else 0
+                completion_tokens = getattr(usage, 'completion_tokens', 0) if usage else 0
+                
+                record_llm_request(
+                    model=self.config.model,
+                    api_key_id='default',
+                    latency=latency,
+                    status='success',
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens
+                )
+            
             return parsed
 
         logger.error("DashScope(OpenAI) call failed after {} attempts", self.config.max_retry + 1)
-        return self._empty_result(latency=time.time() - start_time)
+        final_latency = time.time() - start_time
+        
+        # Record final failure to Prometheus
+        if METRICS_AVAILABLE:
+            record_llm_request(
+                model=self.config.model,
+                api_key_id='default',
+                latency=final_latency,
+                status='max_retries_exceeded'
+            )
+        
+        return self._empty_result(latency=final_latency)
 
     def _build_prompt(
         self,
