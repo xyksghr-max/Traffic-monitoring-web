@@ -7,8 +7,6 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
-import math
-from dotenv import load_dotenv
 
 from loguru import logger
 from openai import OpenAI
@@ -129,91 +127,11 @@ class DangerousDrivingAnalyzer:
                 f"- class={det.get('class')} confidence={det.get('confidence', 0):.2f} bbox={bbox}"
             )
 
-        def _summarize_group(group: Dict[str, Any]) -> str:
-            bbox = group.get("bbox", [0, 0, 0, 0])
-            x1, y1, x2, y2 = bbox if len(bbox) == 4 else (0, 0, 0, 0)
-            width = max(float(x2) - float(x1), 1.0)
-            height = max(float(y2) - float(y1), 1.0)
-            area = width * height
-
-            indices = group.get("memberIndices") or []
-            selected: List[Dict[str, Any]] = []
-            for idx in indices:
-                if isinstance(idx, int) and 0 <= idx < len(detections):
-                    selected.append(detections[idx])
-
-            if not selected:
-                # Fallback: include objects whose center lies within the group bbox
-                for det in detections:
-                    db = det.get("bbox", [])
-                    if len(db) != 4:
-                        continue
-                    cx = (float(db[0]) + float(db[2])) / 2.0
-                    cy = (float(db[1]) + float(db[3])) / 2.0
-                    if x1 <= cx <= x2 and y1 <= cy <= y2:
-                        selected.append(det)
-
-            centers: List[tuple[float, float]] = []
-            for det in selected:
-                db = det.get("bbox", [])
-                if len(db) != 4:
-                    continue
-                centers.append(
-                    ((float(db[0]) + float(db[2])) / 2.0, (float(db[1]) + float(db[3])) / 2.0)
-                )
-
-            distances: List[float] = []
-            for i in range(len(centers)):
-                for j in range(i + 1, len(centers)):
-                    dx = centers[i][0] - centers[j][0]
-                    dy = centers[i][1] - centers[j][1]
-                    distances.append(math.hypot(dx, dy))
-
-            avg_spacing = sum(distances) / len(distances) if distances else None
-            min_spacing = min(distances) if distances else None
-            density = (len(selected) / area * 10000.0) if area > 0 else None
-
-            vehicle_classes = {"car", "bus", "truck", "motorcycle", "bicycle"}
-            pedestrian_classes = {"person"}
-
-            vehicle_centers: List[tuple[float, float]] = []
-            pedestrian_centers: List[tuple[float, float]] = []
-            for det, center in zip(selected, centers):
-                cls = str(det.get("class"))
-                if cls in vehicle_classes:
-                    vehicle_centers.append(center)
-                if cls in pedestrian_classes:
-                    pedestrian_centers.append(center)
-
-            ped_vehicle_min_dist: float | None = None
-            if vehicle_centers and pedestrian_centers:
-                pv_distances = [
-                    math.hypot(vc[0] - pc[0], vc[1] - pc[1])
-                    for vc in vehicle_centers
-                    for pc in pedestrian_centers
-                ]
-                if pv_distances:
-                    ped_vehicle_min_dist = min(pv_distances)
-
-            summary_parts = [
-                f"groupIndex={group.get('groupIndex')}",
-                f"count={group.get('objectCount')}",
-                f"classes={group.get('classes')}",
-                f"bbox={bbox}",
-            ]
-            if density is not None:
-                summary_parts.append(f"density={density:.2f}/1e4px")
-            if avg_spacing is not None:
-                summary_parts.append(f"avgSpacing={avg_spacing:.1f}px")
-            if min_spacing is not None:
-                summary_parts.append(f"minSpacing={min_spacing:.1f}px")
-            summary_parts.append(f"vehicles={len(vehicle_centers)}")
-            summary_parts.append(f"pedestrians={len(pedestrian_centers)}")
-            if ped_vehicle_min_dist is not None:
-                summary_parts.append(f"pedVehicleMinDist={ped_vehicle_min_dist:.1f}px")
-            return "- " + " ".join(summary_parts)
-
-        group_lines = [_summarize_group(group) for group in groups]
+        group_lines = []
+        for group in groups:
+            group_lines.append(
+                f"- groupId={group.get('groupId')} count={group.get('objectCount')} classes={group.get('classes')} bbox={group.get('bbox')}"
+            )
 
         summary = "\n".join(obj_lines) or "无检测目标"
         group_summary = "\n".join(group_lines) or "无对象聚集"

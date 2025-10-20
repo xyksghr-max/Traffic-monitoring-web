@@ -119,6 +119,28 @@ class DetectionPipeline:
 
             dangerous_results = alerts
 
+            # Normalize traffic group fields to include requested aliases while preserving originals
+            normalized_groups: list[Dict[str, Any]] = []
+            for g in groups:
+                g2 = dict(g)
+                # Alias keys expected by frontend schema
+                if "objectCount" in g2 and "memberCount" not in g2:
+                    g2["memberCount"] = g2.get("objectCount")
+                if "averageConfidence" in g2 and "avgConfidence" not in g2:
+                    g2["avgConfidence"] = g2.get("averageConfidence")
+                if "bbox" in g2 and "groupBbox" not in g2:
+                    g2["groupBbox"] = g2.get("bbox")
+                normalized_groups.append(g2)
+
+            # Add incremental groupIndex to each dangerous driving result item (1,2,3,...)
+            raw_results = llm_result.get("results", []) or []
+            dangerous_results: list[Dict[str, Any]] = []
+            for idx, item in enumerate(raw_results, start=1):
+                # Keep original fields and add required ones
+                out = dict(item)
+                out["groupIndex"] = idx
+                dangerous_results.append(out)
+
             height, width = frame.shape[:2]
             payload = {
                 "type": "detection_result",
@@ -132,11 +154,9 @@ class DetectionPipeline:
                     "detectedObjects": detected_objects,
                     "trafficGroups": normalized_groups,
                     "groupImages": group_images,
-                    "alerts": dangerous_results,
-                    "dangerousDrivingResults": dangerous_results,
-                    "hasDangerousDriving": self.risk_manager.has_high_risk(),
-                    "maxRiskLevel": self.risk_manager.highest_risk_level(),
-                    "alertGeneratedAt": now_ts,
+                    "dangerousDrivingResults": llm_result.get("results", []),
+                    "hasDangerousDriving": llm_result.get("hasDangerousDriving", False),
+                    "maxRiskLevel": llm_result.get("maxRiskLevel", "none"),
                     "processTime": detection_time,
                     "llmLatency": llm_result.get("latency"),
                     "llmModel": llm_result.get("model"),
