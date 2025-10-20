@@ -183,8 +183,10 @@ class DetectionPipeline:
                 )
 
             logger.debug(
-                "Camera %s: prepared %d group crops for LLM analysis",
+                "Camera {}: frame analysis - detections={}, groups={}, group_images={}",
                 self.camera_id,
+                len(detected_objects),
+                len(groups),
                 len(llm_group_images),
             )
 
@@ -206,6 +208,23 @@ class DetectionPipeline:
             raw_results = llm_result.get("results", []) or []
             now_ts = time.time()
             alerts = self.risk_manager.update(now_ts, raw_results)
+            
+            # Log risk detection status
+            if raw_results:
+                logger.info(
+                    "Camera {}: LLM detected {} alerts, max_risk={}",
+                    self.camera_id,
+                    len(raw_results),
+                    llm_result.get("maxRiskLevel", "none")
+                )
+            elif alerts:
+                logger.debug(
+                    "Camera {}: Using {} cached alerts (LLM cooldown), highest_risk={}",
+                    self.camera_id,
+                    len(alerts),
+                    self.risk_manager.highest_risk_level()
+                )
+            
             self._apply_alerts_to_groups(normalized_groups, group_images, alerts)
 
             rendered_frame = render_frame(frame, detected_objects, normalized_groups)

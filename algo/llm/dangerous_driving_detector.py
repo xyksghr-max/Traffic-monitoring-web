@@ -51,13 +51,21 @@ class DangerousDrivingAnalyzer:
         self.enabled = enabled
 
         if not enabled:
-            logger.info("Dangerous driving analysis disabled via configuration.")
+            logger.info("🔴 Dangerous driving analysis DISABLED via configuration (llm.enabled=false)")
         elif not api_key:
-            logger.warning("DASHSCOPE_API_KEY not set, LLM analysis disabled.")
+            logger.warning(
+                "🔴 DASHSCOPE_API_KEY not set, LLM analysis DISABLED. "
+                "Set DASHSCOPE_API_KEY environment variable to enable risk detection."
+            )
             self.enabled = False
         else:
             try:
-                self.client = OpenAI(api_key=api_key, base_url=self.config.base_url)
+                self._client = OpenAI(api_key=api_key, base_url=self.config.base_url)
+                logger.success(
+                    "✅ Dangerous driving analyzer initialized: model={}, cooldown={}s",
+                    self.config.model,
+                    self.config.cooldown_seconds
+                )
             except Exception as exc:
                 logger.error("Failed to initialise OpenAI-compatible client: {}", exc)
                 raise
@@ -71,15 +79,53 @@ class DangerousDrivingAnalyzer:
         group_images: Sequence[Dict],
     ) -> bool:
         if not self.enabled or not self._client:
+            logger.debug(
+                "LLM analysis skipped: enabled={}, client_initialized={}",
+                self.enabled,
+                self._client is not None
+            )
             return False
-        if time.time() - self._last_call_ts < self.config.cooldown_seconds:
+        
+        time_since_last_call = time.time() - self._last_call_ts
+        if time_since_last_call < self.config.cooldown_seconds:
+            logger.debug(
+                "LLM analysis skipped: cooldown active ({}s / {}s)",
+                round(time_since_last_call, 1),
+                self.config.cooldown_seconds
+            )
             return False
+        
         if not group_images:
+            logger.debug(
+                "LLM analysis skipped: no group images (detections={}, groups={})",
+                len(detections),
+                len(groups)
+            )
             return False
+        
         if len(detections) >= 2:
+            logger.debug(
+                "LLM analysis triggered: {} detections (>=2), {} groups, {} group images",
+                len(detections),
+                len(groups),
+                len(group_images)
+            )
             return True
+        
         if groups:
+            logger.debug(
+                "LLM analysis triggered: {} groups detected, {} group images",
+                len(groups),
+                len(group_images)
+            )
             return True
+        
+        logger.debug(
+            "LLM analysis skipped: insufficient detections (detections={}, groups={}, group_images={})",
+            len(detections),
+            len(groups),
+            len(group_images)
+        )
         return False
 
     def analyze(
