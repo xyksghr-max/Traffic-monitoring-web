@@ -1,0 +1,33 @@
+# 新增依赖包 - 流处理和消息队列相关
+
+# Kafka 客户端
+confluent-kafka>=2.3.0
+
+# Redis 客户端
+redis>=5.0.0
+
+# 异步 HTTP 客户端 (用于并发调用 LLM API)
+aiohttp>=3.9.0
+
+# Prometheus 指标导出
+prometheus-client>=0.19.0
+
+# Apache Flink Python API (可选，如果使用 Flink)
+# apache-flink>=1.18.0
+
+# YAML 配置解析 (已在 requirements.txt 中)
+# pyyaml>=6.0.1
+
+# 异步任务队列 (备选方案，如果不使用 Flink)
+# celery>=5.3.0
+# kombu>=5.3.0
+
+# 数据验证
+pydantic>=2.11.9
+
+# 日志增强
+loguru>=0.7.3
+
+# 性能分析工具 (可选)
+# memory-profiler>=0.61.0
+# py-spy>=0.3.14

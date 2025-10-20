@@ -1,0 +1,154 @@
+# Kafka 配置文件
+
+kafka:
+  # Kafka 集群地址
+  # 生产环境建议使用多节点集群
+  bootstrap_servers: "localhost:9092"
+  # 或多节点: "kafka-1:9092,kafka-2:9092,kafka-3:9092"
+  
+  # Topic 配置
+  topics:
+    # 检测结果 Topic
+    detection_results:
+      name: "detection-results"
+      partitions: 16          # 分区数 (根据并发摄像头数调整)
+      replication_factor: 3   # 副本数 (建议 >= 3)
+      retention_ms: 3600000   # 保留时间 1小时 (毫秒)
+      
+    # 评估任务 Topic
+    assessment_tasks:
+      name: "assessment-tasks"
+      partitions: 16
+      replication_factor: 3
+      retention_ms: 7200000   # 保留时间 2小时
+      
+    # 风险评估结果 Topic
+    risk_assessment_results:
+      name: "risk-assessment-results"
+      partitions: 16
+      replication_factor: 3
+      retention_ms: 86400000  # 保留时间 24小时
+  
+  # Producer 配置
+  producer:
+    # 压缩类型: none, gzip, snappy, lz4, zstd
+    compression_type: "snappy"
+    
+    # 消息确认级别
+    # 0: 不等待确认
+    # 1: 等待 leader 确认
+    # all/-1: 等待所有副本确认
+    acks: 1
+    
+    # 批处理延迟 (毫秒)
+    # 增加可提升吞吐量，但会增加延迟
+    linger_ms: 10
+    
+    # 批处理大小 (字节)
+    batch_size: 32768  # 32KB
+    
+    # 缓冲区大小 (字节)
+    buffer_memory: 33554432  # 32MB
+    
+    # 最大请求大小 (字节)
+    max_request_size: 1048576  # 1MB
+    
+    # 重试次数
+    retries: 3
+    
+    # 重试间隔 (毫秒)
+    retry_backoff_ms: 100
+    
+    # 幂等性 (避免重复消息)
+    enable_idempotence: true
+    
+    # 事务ID前缀 (启用事务时)
+    # transactional_id: "traffic-monitor-producer"
+  
+  # Consumer 配置
+  consumer:
+    # 消费组 ID 前缀
+    group_id_prefix: "traffic-monitor"
+    
+    # 自动提交偏移量
+    enable_auto_commit: true
+    auto_commit_interval_ms: 5000  # 5秒
+    
+    # 初始偏移量策略
+    # - latest: 从最新消息开始
+    # - earliest: 从最早消息开始
+    auto_offset_reset: "latest"
+    
+    # 每次拉取的最小字节数
+    fetch_min_bytes: 1024  # 1KB
+    
+    # 最大等待时间 (毫秒)
+    fetch_max_wait_ms: 500
+    
+    # 每次 poll 返回的最大记录数
+    max_poll_records: 500
+    
+    # Poll 间隔 (毫秒)
+    # 超过此时间未 poll 会被踢出消费组
+    max_poll_interval_ms: 300000  # 5分钟
+    
+    # 会话超时 (毫秒)
+    session_timeout_ms: 30000  # 30秒
+    
+    # 心跳间隔 (毫秒)
+    heartbeat_interval_ms: 3000  # 3秒
+    
+    # 隔离级别
+    # - read_uncommitted: 读取所有消息
+    # - read_committed: 只读取已提交的消息
+    isolation_level: "read_uncommitted"
+  
+  # Admin 配置 (用于创建/管理 Topic)
+  admin:
+    # 操作超时 (秒)
+    request_timeout_ms: 30000
+    
+    # 默认 Topic 配置
+    default_topic_config:
+      # 压缩策略: delete, compact
+      cleanup_policy: "delete"
+      
+      # 消息最大大小 (字节)
+      max_message_bytes: 1048576  # 1MB
+      
+      # 分段大小 (字节)
+      segment_bytes: 1073741824  # 1GB
+      
+      # 分段滚动时间 (毫秒)
+      segment_ms: 604800000  # 7天
+  
+  # 连接配置
+  connection:
+    # 连接超时 (毫秒)
+    connections_max_idle_ms: 540000  # 9分钟
+    
+    # 请求超时 (毫秒)
+    request_timeout_ms: 30000  # 30秒
+    
+    # 元数据最大时间 (毫秒)
+    metadata_max_age_ms: 300000  # 5分钟
+    
+    # 重连间隔 (毫秒)
+    reconnect_backoff_ms: 50
+    reconnect_backoff_max_ms: 1000
+  
+  # 安全配置 (可选)
+  security:
+    # 安全协议: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+    protocol: "PLAINTEXT"
+    
+    # SASL 机制: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+    # sasl_mechanism: "SCRAM-SHA-256"
+    # sasl_username: "your-username"
+    # sasl_password: "your-password"
+    
+    # SSL 配置
+    # ssl_ca_location: "/path/to/ca-cert"
+    # ssl_certificate_location: "/path/to/client-cert"
+    # ssl_key_location: "/path/to/client-key"
+    # ssl_key_password: "your-key-password"

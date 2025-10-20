@@ -1,0 +1,256 @@
+# 监控与告警配置
+
+# Prometheus 指标配置
+prometheus:
+  enabled: true
+  port: 9091
+  path: "/metrics"
+  
+  # 指标前缀
+  namespace: "traffic_monitor"
+  
+  # 指标采集间隔 (秒)
+  scrape_interval: 15
+  
+  # 指标保留时间 (天)
+  retention_days: 30
+
+# Grafana 配置
+grafana:
+  enabled: true
+  url: "http://localhost:3000"
+  api_key: ""  # Grafana API Key
+  
+  # 自动创建仪表盘
+  auto_import_dashboards: true
+  
+  # 数据源配置
+  datasources:
+    - name: "Prometheus"
+      type: "prometheus"
+      url: "http://localhost:9090"
+      is_default: true
+
+# 告警配置
+alerts:
+  enabled: true
+  
+  # 告警规则
+  rules:
+    # 端到端延迟告警
+    - name: "high_latency"
+      metric: "detection_latency_p95"
+      threshold: 2.5  # 秒
+      duration: "5m"  # 持续 5 分钟
+      severity: "warning"
+      description: "P95 延迟超过 2.5 秒"
+      
+    - name: "critical_latency"
+      metric: "detection_latency_p95"
+      threshold: 5.0
+      duration: "2m"
+      severity: "critical"
+      description: "P95 延迟超过 5 秒"
+    
+    # 错误率告警
+    - name: "high_error_rate"
+      metric: "llm_calls_error_rate"
+      threshold: 0.05  # 5%
+      duration: "5m"
+      severity: "warning"
+      description: "LLM 调用错误率超过 5%"
+    
+    # Kafka 消息堆积告警
+    - name: "kafka_lag"
+      metric: "kafka_consumer_lag"
+      threshold: 1000
+      duration: "3m"
+      severity: "warning"
+      description: "Kafka 消息堆积超过 1000 条"
+      
+    - name: "kafka_critical_lag"
+      metric: "kafka_consumer_lag"
+      threshold: 5000
+      duration: "5m"
+      severity: "critical"
+      description: "Kafka 消息堆积严重"
+    
+    # API Key 故障告警
+    - name: "api_key_failure"
+      metric: "api_key_failure_rate"
+      threshold: 0.2  # 20%
+      duration: "5m"
+      severity: "warning"
+      description: "单个 API Key 失败率超过 20%"
+    
+    # 可用 Key 不足告警
+    - name: "insufficient_keys"
+      metric: "available_api_keys"
+      threshold: 2
+      comparison: "less_than"
+      duration: "2m"
+      severity: "critical"
+      description: "可用 API Key 少于 2 个"
+    
+    # 系统资源告警
+    - name: "high_memory_usage"
+      metric: "process_resident_memory_bytes"
+      threshold: 8589934592  # 8GB
+      duration: "5m"
+      severity: "warning"
+      description: "内存使用超过 8GB"
+    
+    - name: "high_cpu_usage"
+      metric: "process_cpu_usage_percent"
+      threshold: 80  # 80%
+      duration: "5m"
+      severity: "warning"
+      description: "CPU 使用率超过 80%"
+  
+  # 告警通知渠道
+  notification_channels:
+    # 邮件通知
+    - type: "email"
+      enabled: false
+      config:
+        smtp_server: "smtp.example.com"
+        smtp_port: 587
+        username: "alerts@example.com"
+        password: ""
+        from: "alerts@example.com"
+        to: ["admin@example.com"]
+        subject_prefix: "[Traffic Monitor Alert]"
+    
+    # Webhook 通知
+    - type: "webhook"
+      enabled: true
+      config:
+        url: "http://localhost:9090/api/alerts/webhook"
+        method: "POST"
+        headers:
+          Content-Type: "application/json"
+        retry_count: 3
+    
+    # 钉钉通知
+    - type: "dingtalk"
+      enabled: false
+      config:
+        webhook_url: ""
+        secret: ""
+        at_mobiles: []
+        is_at_all: false
+    
+    # 企业微信通知
+    - type: "wecom"
+      enabled: false
+      config:
+        webhook_url: ""
+
+# 日志配置
+logging:
+  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # 日志格式
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # 日志输出
+  handlers:
+    # 控制台输出
+    - type: "console"
+      enabled: true
+      level: "INFO"
+      colored: true
+    
+    # 文件输出
+    - type: "file"
+      enabled: true
+      level: "INFO"
+      filename: "logs/app.log"
+      max_bytes: 104857600  # 100MB
+      backup_count: 10
+      
+    # JSON 格式日志 (用于 ELK)
+    - type: "json_file"
+      enabled: true
+      level: "INFO"
+      filename: "logs/app.json"
+      max_bytes: 104857600
+      backup_count: 10
+  
+  # 特定模块日志级别
+  loggers:
+    algo.scheduler: "DEBUG"
+    algo.kafka: "INFO"
+    confluent_kafka: "WARNING"
+    urllib3: "WARNING"
+
+# 性能追踪
+tracing:
+  enabled: false
+  
+  # Jaeger 配置
+  jaeger:
+    agent_host: "localhost"
+    agent_port: 6831
+    service_name: "traffic-monitor"
+    sampler_type: "probabilistic"
+    sampler_param: 0.1  # 10% 采样率
+
+# 健康检查
+health_check:
+  # 健康检查端点
+  endpoint: "/api/health/health_check"
+  
+  # 检查间隔 (秒)
+  interval: 60
+  
+  # 超时时间 (秒)
+  timeout: 5
+  
+  # 检查项
+  checks:
+    - name: "kafka_connection"
+      enabled: true
+    - name: "redis_connection"
+      enabled: true
+    - name: "api_key_availability"
+      enabled: true
+    - name: "disk_space"
+      enabled: true
+      threshold: 80  # 磁盘使用率阈值 (%)
+    - name: "memory_usage"
+      enabled: true
+      threshold: 85  # 内存使用率阈值 (%)
+
+# 性能分析
+profiling:
+  enabled: false
+  
+  # cProfile 配置
+  cprofile:
+    output_dir: "profiling"
+    interval: 300  # 5分钟采样一次
+  
+  # Memory profiler
+  memory_profiler:
+    enabled: false
+    interval: 600  # 10分钟采样一次
+
+# 审计日志
+audit:
+  enabled: true
+  
+  # 记录的事件类型
+  events:
+    - "api_key_change"
+    - "config_change"
+    - "system_restart"
+    - "error_threshold_exceeded"
+  
+  # 审计日志存储
+  storage:
+    type: "file"
+    filename: "logs/audit.log"
+    max_bytes: 52428800  # 50MB
+    backup_count: 20

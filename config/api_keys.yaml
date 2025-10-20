@@ -1,0 +1,93 @@
+# API Keys 配置文件
+# 用于配置多个 DashScope API Key 进行池化调度
+
+api_keys:
+  # Key 1
+  - key: "sk-your-dashscope-key-1"
+    key_id: "key_1"
+    qps_limit: 10           # 每秒请求数限制
+    rpm_limit: 300          # 每分钟请求数限制
+    enabled: true           # 是否启用此 Key
+    priority: 1             # 优先级 (1最高)
+    
+  # Key 2
+  - key: "sk-your-dashscope-key-2"
+    key_id: "key_2"
+    qps_limit: 10
+    rpm_limit: 300
+    enabled: true
+    priority: 1
+    
+  # Key 3
+  - key: "sk-your-dashscope-key-3"
+    key_id: "key_3"
+    qps_limit: 10
+    rpm_limit: 300
+    enabled: true
+    priority: 2
+  
+  # 添加更多 Key...
+  # - key: "sk-your-dashscope-key-4"
+  #   key_id: "key_4"
+  #   qps_limit: 10
+  #   rpm_limit: 300
+  #   enabled: true
+  #   priority: 2
+
+# 调度器配置
+scheduler:
+  # 最大并发任务数
+  max_concurrent_tasks: 50
+  
+  # Key 冷却时间 (秒)
+  # 当 Key 调用失败时，进入冷却期不再使用
+  key_cooldown_seconds: 60
+  
+  # 最大重试次数
+  retry_max_attempts: 2
+  
+  # 请求超时时间 (秒)
+  timeout_seconds: 35
+  
+  # 调度策略
+  # - round_robin: 轮询
+  # - least_loaded: 选择负载最低的 Key
+  # - weighted: 根据优先级加权选择
+  strategy: "least_loaded"
+  
+  # 自适应冷却
+  # 根据失败率动态调整冷却时间
+  adaptive_cooldown:
+    enabled: true
+    min_cooldown: 10      # 最小冷却时间 (秒)
+    max_cooldown: 120     # 最大冷却时间 (秒)
+    failure_threshold: 0.2  # 失败率阈值
+  
+  # 限流配置
+  rate_limit:
+    enabled: true
+    # 全局 QPS 限制 (所有 Key 总和)
+    global_qps_limit: 100
+    # 滑动窗口大小 (秒)
+    window_size: 1
+  
+  # 健康检查
+  health_check:
+    enabled: true
+    interval_seconds: 60    # 检查间隔
+    timeout_seconds: 10     # 检查超时
+    failure_threshold: 3    # 连续失败次数阈值
+
+# 监控配置
+monitoring:
+  # Prometheus 指标导出
+  prometheus:
+    enabled: true
+    port: 9091
+    path: "/metrics"
+  
+  # 日志级别
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  
+  # 慢查询日志阈值 (秒)
+  slow_query_threshold: 3.0
