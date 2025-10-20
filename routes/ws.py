@@ -20,12 +20,16 @@ KAFKA_PRODUCER = None
 if settings.enable_kafka_streaming:
     try:
         from algo.kafka.detection_producer import DetectionResultProducer
-        KAFKA_PRODUCER = DetectionResultProducer(settings.kafka_bootstrap_servers)
+        KAFKA_PRODUCER = DetectionResultProducer(
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            topic='detection-results',
+            enable_kafka=True
+        )
         logger.info("Kafka producer initialized for streaming mode")
     except ImportError:
         logger.warning("Kafka module not available, streaming mode disabled")
     except Exception as exc:
-        logger.error("Failed to initialize Kafka producer: %s", exc)
+        logger.error(f"Failed to initialize Kafka producer: {exc}")
 
 WELCOME_MESSAGE: Dict[str, Any] = {
     "type": "connection_ack",
