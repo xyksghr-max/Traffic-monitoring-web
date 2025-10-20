@@ -21,6 +21,10 @@ try:
     METRICS_AVAILABLE = True
 except ImportError:
     METRICS_AVAILABLE = False
+    # Define a no-op function if metrics are not available
+    def record_llm_request(*args, **kwargs):  # type: ignore
+        """No-op placeholder when metrics are unavailable."""
+        pass
     logger.warning("Prometheus metrics not available for LLM monitoring")
 
 load_dotenv() # take environment variables from .env if available
