@@ -121,7 +121,24 @@ class LLMTaskScheduler:
         }
         
         # 构造请求payload
-        group_image = task.get('groupImageBase64', '')
+        group_image_base64 = task.get('groupImageBase64', '')
+        
+        # 确保是完整的 data URI 格式
+        if group_image_base64 and not group_image_base64.startswith('data:'):
+            group_image_url = f"data:image/jpeg;base64,{group_image_base64}"
+        else:
+            group_image_url = group_image_base64
+        
+        # 如果没有 base64，尝试使用 URL
+        if not group_image_url:
+            group_image_url = task.get('groupImageUrl', '')
+        
+        if not group_image_url:
+            logger.error(
+                f"Task {task.get('taskId')} has no valid image (no base64 or URL)"
+            )
+            return self._empty_result(task)
+        
         prompt = self._build_prompt(task)
         
         payload = {
@@ -134,7 +151,7 @@ class LLMTaskScheduler:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": group_image}},
+                        {"type": "image_url", "image_url": {"url": group_image_url}},
                         {"type": "text", "text": prompt}
                     ]
                 }
