@@ -178,6 +178,7 @@ class DetectionPipeline:
                         "groupIndex": image.get("groupIndex"),
                         "objectCount": image.get("objectCount"),
                         "classes": image.get("classes"),
+                        "imageBase64": base64_part,  # Keep original base64
                         "dataUri": f"data:image/jpeg;base64,{base64_part}",
                     }
                 )

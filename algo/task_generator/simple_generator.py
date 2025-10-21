@@ -117,6 +117,14 @@ class SimpleTaskGenerator:
                     }
                 }
                 
+                # 验证图像数据
+                if not task['groupImageBase64'] and not task['groupImageUrl']:
+                    logger.warning(
+                        "⚠️  Group {} has no image data (base64 or URL), skipping task generation",
+                        group_index
+                    )
+                    continue
+                
                 # 发送任务
                 self.task_producer.send(task, camera_id)
                 task_count += 1
