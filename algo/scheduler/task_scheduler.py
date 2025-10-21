@@ -198,11 +198,12 @@ class LLMTaskScheduler:
                 result = await self.call_llm_api(api_key, task)
                 
                 # 打印大模型返回的完整信息（调试用）
+                group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
                 logger.info(
-                    "🤖 LLM Response for task {}: riskLevel={}, hasDangerous={}, results={}",
+                    "🤖 LLM Response for task {}: groupIndex={}, riskLevel={}, results={}",
                     task_id,
-                    result.get('maxRiskLevel', 'none'),
-                    result.get('hasDangerousDriving', False),
+                    result.get('groupIndex'),
+                    group_risk,
                     json.dumps(result.get('results', []), ensure_ascii=False)[:500]
                 )
                 
@@ -219,10 +220,13 @@ class LLMTaskScheduler:
                 
                 # 发送结果
                 self._send_result(result, task.get('cameraId', 0))
+                group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
                 logger.info(
-                    "✅ Task {} completed in {:.2f}s, sent to Kafka",
+                    "✅ Task {} completed in {:.2f}s, groupIndex={}, risk={}, sent to Kafka",
                     task_id,
-                    time.time() - start_time
+                    time.time() - start_time,
+                    result.get('groupIndex'),
+                    group_risk
                 )
                 
             except Exception as e:
@@ -240,11 +244,13 @@ class LLMTaskScheduler:
         """发送结果到 Kafka"""
         try:
             self.result_producer.send(result, camera_id)
+            group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
             logger.info(
-                "📤 Sent LLM result to Kafka: requestId={}, cameraId={}, risk={}",
+                "📤 Sent LLM result to Kafka: requestId={}, cameraId={}, groupIndex={}, risk={}",
                 result.get('requestId'),
                 camera_id,
-                result.get('maxRiskLevel', 'none')
+                result.get('groupIndex'),
+                group_risk
             )
         except Exception as e:
             logger.error(f"Failed to send result to Kafka: {e}")
@@ -353,11 +359,14 @@ Please analyze this traffic scene and return results in JSON format with fields:
                 'description': content[:200] if content else 'No response'
             }
         
+        # ✅ 修复：只返回该群组的结果，不判断整体风险
+        # hasDangerousDriving 和 maxRiskLevel 由 ResultAggregator 聚合所有群组后计算
         return {
             'messageId': f"{task.get('taskId', 'unknown')}_result",
             'requestId': task.get('requestId'),
             'cameraId': task.get('cameraId'),
             'timestamp': task.get('timestamp'),
+            'groupIndex': task.get('groupIndex'),  # 明确标识这是哪个群组的结果
             'results': [
                 {
                     'groupIndex': task.get('groupIndex'),
@@ -369,8 +378,8 @@ Please analyze this traffic scene and return results in JSON format with fields:
                     'triggerObjectIds': parsed.get('triggerObjectIds', []),
                 }
             ],
-            'hasDangerousDriving': parsed.get('riskLevel', 'none') != 'none',
-            'maxRiskLevel': parsed.get('riskLevel', 'none'),
+            # 注意：这里不再包含 hasDangerousDriving 和 maxRiskLevel
+            # 这些字段由 ResultAggregator 在聚合所有群组后计算
         }
     
     def _empty_result(self, task: Dict[str, Any]) -> Dict[str, Any]:
@@ -380,9 +389,9 @@ Please analyze this traffic scene and return results in JSON format with fields:
             'requestId': task.get('requestId'),
             'cameraId': task.get('cameraId'),
             'timestamp': task.get('timestamp'),
+            'groupIndex': task.get('groupIndex'),
             'results': [],
-            'hasDangerousDriving': False,
-            'maxRiskLevel': 'none',
+            # 注意：不包含 hasDangerousDriving 和 maxRiskLevel
         }
     
     def _error_result(self, task: Dict[str, Any], error: str) -> Dict[str, Any]:

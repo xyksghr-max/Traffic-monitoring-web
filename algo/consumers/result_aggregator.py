@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from pathlib import Path
 import sys
+from collections import defaultdict
 
 import redis
 from loguru import logger
@@ -54,6 +55,11 @@ class ResultAggregator:
         self.enable_redis = enable_redis
         self.redis_client: Optional[Redis] = None
         
+        # 添加：按 requestId 聚合多个群组的结果
+        self.pending_results: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        self.result_locks: Dict[str, threading.Lock] = defaultdict(threading.Lock)
+        self.expected_groups: Dict[str, int] = {}
+        
         # 初始化 Redis
         if enable_redis:
             try:
@@ -86,80 +92,215 @@ class ResultAggregator:
     
     def handle_assessment_result(self, result: Dict[str, Any]):
         """
-        处理评估结果
+        处理评估结果（聚合同一 requestId 的所有群组）
         
         Args:
-            result: 评估结果数据
+            result: 单个群组的评估结果
         """
         try:
             request_id = result.get('requestId')
             camera_id = result.get('cameraId')
+            group_index = result.get('groupIndex')
             
+            group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
             logger.info(
-                "📥 Received LLM assessment result: requestId={}, cameraId={}, hasDangerous={}",
+                "📥 Received LLM assessment: requestId={}, cameraId={}, groupIndex={}, risk={}",
                 request_id,
                 camera_id,
-                result.get('hasDangerousDriving', False)
+                group_index,
+                group_risk
             )
             
             if not camera_id:
                 logger.warning("Assessment result missing cameraId, skipping")
                 return
             
-            logger.debug(f"Processing assessment result for camera {camera_id}, request {request_id}")
+            if not request_id:
+                logger.warning("Assessment result missing requestId, skipping")
+                return
             
             # 1. 从 Redis 获取原始检测结果
-            detection_data = None
-            if self.enable_redis and self.redis_client and request_id:
-                detection_data = self._get_detection_from_redis(request_id)
-            
-            # 2. 合并结果
-            if detection_data:
-                merged_result = {
-                    **detection_data,
-                    'riskAssessment': result,
-                    'hasDangerousDriving': result.get('hasDangerousDriving', False),
-                    'maxRiskLevel': result.get('maxRiskLevel', 'none'),
-                    'llmLatency': result.get('metadata', {}).get('llmLatency', 0.0),
-                    'llmModel': result.get('metadata', {}).get('llmModel', ''),
-                }
-            else:
-                # 如果没有原始数据，只使用评估结果
-                merged_result = {
-                    'cameraId': camera_id,
-                    'timestamp': result.get('timestamp'),
-                    'riskAssessment': result,
-                    'hasDangerousDriving': result.get('hasDangerousDriving', False),
-                    'maxRiskLevel': result.get('maxRiskLevel', 'none'),
-                }
-            
-            # 3. 缓存最新结果到 Redis
-            if self.enable_redis and self.redis_client:
-                self._cache_latest_result(camera_id, merged_result)
-            
-            # 4. 发布到 WebSocket 频道
-            max_risk = result.get('maxRiskLevel', 'none')
-            if self.enable_redis and self.redis_client:
-                self._publish_to_websocket(camera_id, merged_result)
-                logger.info(
-                    "📡 Published to WebSocket: camera={}, risk={}, hasDangerous={}",
-                    camera_id,
-                    max_risk,
-                    merged_result.get('hasDangerousDriving', False)
+            detection_data = self._get_detection_from_redis(request_id)
+            if not detection_data:
+                logger.warning(
+                    "❌ Detection data not found in Redis for requestId={}, cannot aggregate",
+                    request_id
                 )
+                # 即使没有检测数据，也尝试发布评估结果
+                self._publish_single_result_without_detection(result, camera_id)
+                return
             
-            # 5. 触发高风险告警
-            if max_risk == 'high':
-                self._trigger_alert(camera_id, merged_result)
-            
-            logger.info(
-                "✅ Aggregated result for camera {}, risk={}",
-                camera_id,
-                max_risk
+            # 2. 获取预期的群组数量
+            expected_count = len(detection_data.get('trafficGroups', []))
+            logger.debug(
+                "Expected {} groups for requestId={}, current group={}",
+                expected_count,
+                request_id,
+                group_index
             )
+            
+            # 3. 聚合该群组的结果
+            with self.result_locks[request_id]:
+                self.pending_results[request_id].append(result)
+                self.expected_groups[request_id] = expected_count
+                
+                current_count = len(self.pending_results[request_id])
+                logger.debug(
+                    "Collected {}/{} group results for requestId={}",
+                    current_count,
+                    expected_count,
+                    request_id
+                )
+                
+                # 4. 如果所有群组结果都收到了，进行聚合并发布
+                if current_count >= expected_count:
+                    all_results = self.pending_results.pop(request_id)
+                    self.expected_groups.pop(request_id)
+                    self.result_locks.pop(request_id)
+                    
+                    logger.info(
+                        "✅ All {} group results collected for requestId={}, aggregating...",
+                        expected_count,
+                        request_id
+                    )
+                    
+                    # 5. 聚合所有群组的结果
+                    merged_result = self._merge_all_group_results(
+                        detection_data,
+                        all_results
+                    )
+                    
+                    # 6. 缓存最新结果到 Redis
+                    if self.enable_redis and self.redis_client:
+                        self._cache_latest_result(camera_id, merged_result)
+                    
+                    # 7. 发布到 WebSocket 频道
+                    if self.enable_redis and self.redis_client:
+                        self._publish_to_websocket(camera_id, merged_result)
+                    
+                    # 8. 触发高风险告警
+                    max_risk = merged_result.get('maxRiskLevel', 'none')
+                    if max_risk == 'high':
+                        self._trigger_alert(camera_id, merged_result)
+                    
+                    logger.info(
+                        "✅ Aggregated and published result for camera {}, risk={}, hasDangerous={}",
+                        camera_id,
+                        max_risk,
+                        merged_result.get('hasDangerousDriving', False)
+                    )
+                else:
+                    logger.debug(
+                        "⏳ Waiting for more results: {}/{} collected for requestId={}",
+                        current_count,
+                        expected_count,
+                        request_id
+                    )
             
         except Exception as e:
             logger.error(f"Failed to aggregate result: {e}", exc_info=True)
+    
+    def _merge_all_group_results(
+        self,
+        detection_data: Dict[str, Any],
+        all_results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        聚合所有群组的评估结果
+        
+        Args:
+            detection_data: 原始检测数据
+            all_results: 所有群组的LLM评估结果列表
+            
+        Returns:
+            合并后的完整结果
+        """
+        # 收集所有群组的风险等级
+        all_group_results = []
+        max_risk = "none"
+        risk_order = {"none": 0, "low": 1, "medium": 2, "high": 3}
+        max_llm_latency = 0.0
+        llm_model = ""
+        
+        for result in all_results:
+            # 提取该群组的结果
+            group_results = result.get('results', [])
+            all_group_results.extend(group_results)
+            
+            # 更新最大风险等级
+            for group_result in group_results:
+                risk = group_result.get('riskLevel', 'none')
+                if risk_order.get(risk, 0) > risk_order.get(max_risk, 0):
+                    max_risk = risk
+            
+            # 提取 metadata
+            metadata = result.get('metadata', {})
+            latency = metadata.get('llmLatency', 0.0)
+            if latency > max_llm_latency:
+                max_llm_latency = latency
+            if not llm_model and metadata.get('llmModel'):
+                llm_model = metadata.get('llmModel', '')
+        
+        # 判断是否有危险驾驶（任一群组风险 != none）
+        has_dangerous = max_risk != "none"
+        
+        logger.debug(
+            "Aggregated {} group results: maxRisk={}, hasDangerous={}",
+            len(all_group_results),
+            max_risk,
+            has_dangerous
+        )
+        
+        # 构建最终结果
+        return {
+            **detection_data,
+            'riskAssessment': {
+                'allGroupResults': all_group_results,
+                'resultCount': len(all_group_results),
+                'groupCount': len(all_results),
+            },
+            'hasDangerousDriving': has_dangerous,
+            'maxRiskLevel': max_risk,
+            'llmLatency': max_llm_latency,
+            'llmModel': llm_model,
+        }
+    
+    def _publish_single_result_without_detection(
+        self,
+        result: Dict[str, Any],
+        camera_id: int
+    ):
+        """
+        在没有检测数据的情况下，发布单个群组的结果
+        （降级处理，不推荐）
+        """
+        try:
+            # 提取群组风险
+            group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
+            
+            minimal_result = {
+                'cameraId': camera_id,
+                'timestamp': result.get('timestamp'),
+                'riskAssessment': {
+                    'allGroupResults': result.get('results', []),
+                    'resultCount': len(result.get('results', [])),
+                    'warning': 'Detection data not found, showing partial results'
+                },
+                'hasDangerousDriving': group_risk != 'none',
+                'maxRiskLevel': group_risk,
+                'llmLatency': result.get('metadata', {}).get('llmLatency', 0.0),
+                'llmModel': result.get('metadata', {}).get('llmModel', ''),
+            }
+            
+            if self.enable_redis and self.redis_client:
+                self._publish_to_websocket(camera_id, minimal_result)
+                logger.warning(
+                    "⚠️  Published partial result without detection data: camera={}, risk={}",
+                    camera_id,
+                    group_risk
+                )
+        except Exception as e:
+            logger.error(f"Failed to publish single result: {e}")
     
     def _get_detection_from_redis(self, request_id: str) -> Optional[Dict[str, Any]]:
         """从 Redis 获取检测结果"""
