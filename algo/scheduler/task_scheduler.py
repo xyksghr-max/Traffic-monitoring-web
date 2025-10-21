@@ -88,6 +88,12 @@ class LLMTaskScheduler:
     
     def _handle_task_sync(self, task_data: Dict[str, Any]):
         """同步处理任务（从 Kafka Consumer 调用）"""
+        logger.info(
+            "📥 Received LLM task: taskId={}, requestId={}, cameraId={}",
+            task_data.get('taskId'),
+            task_data.get('requestId'),
+            task_data.get('cameraId')
+        )
         if self.event_loop and self.running:
             asyncio.run_coroutine_threadsafe(
                 self.pending_tasks.put(task_data),
@@ -191,6 +197,15 @@ class LLMTaskScheduler:
                 # 调用 LLM API
                 result = await self.call_llm_api(api_key, task)
                 
+                # 打印大模型返回的完整信息（调试用）
+                logger.info(
+                    "🤖 LLM Response for task {}: riskLevel={}, hasDangerous={}, results={}",
+                    task_id,
+                    result.get('maxRiskLevel', 'none'),
+                    result.get('hasDangerousDriving', False),
+                    json.dumps(result.get('results', []), ensure_ascii=False)[:500]
+                )
+                
                 # 释放 Key (成功)
                 self.key_pool.release_key(api_key, success=True)
                 
@@ -204,7 +219,11 @@ class LLMTaskScheduler:
                 
                 # 发送结果
                 self._send_result(result, task.get('cameraId', 0))
-                logger.info(f"Task {task_id} completed successfully in {time.time() - start_time:.2f}s")
+                logger.info(
+                    "✅ Task {} completed in {:.2f}s, sent to Kafka",
+                    task_id,
+                    time.time() - start_time
+                )
                 
             except Exception as e:
                 logger.error(f"Task {task_id} failed: {e}")
@@ -221,6 +240,12 @@ class LLMTaskScheduler:
         """发送结果到 Kafka"""
         try:
             self.result_producer.send(result, camera_id)
+            logger.info(
+                "📤 Sent LLM result to Kafka: requestId={}, cameraId={}, risk={}",
+                result.get('requestId'),
+                camera_id,
+                result.get('maxRiskLevel', 'none')
+            )
         except Exception as e:
             logger.error(f"Failed to send result to Kafka: {e}")
     

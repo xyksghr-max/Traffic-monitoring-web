@@ -265,7 +265,47 @@ class DetectionPipeline:
                         "detectionLatency": detection_time,
                         "modelType": self.detector.model_type,
                     }
-                    self.kafka_producer.send(kafka_payload, self.camera_id)
+                    message_id = self.kafka_producer.send(kafka_payload, self.camera_id)
+                    
+                    # Store detection data in Redis for result aggregation
+                    if message_id:
+                        try:
+                            import redis
+                            import json
+                            redis_client = redis.Redis(
+                                host='localhost',
+                                port=6379,
+                                db=0,
+                                decode_responses=True,
+                                socket_connect_timeout=5
+                            )
+                            detection_key = f"detection:{message_id}"
+                            detection_data = {
+                                "cameraId": self.camera_id,
+                                "timestamp": kafka_payload["timestamp"],
+                                "detectedObjects": detected_objects,
+                                "trafficGroups": normalized_groups,
+                                "groupImages": group_images,  # Include rendered group images
+                                "imageWidth": width,
+                                "imageHeight": height,
+                                "messageId": message_id,
+                            }
+                            redis_client.setex(
+                                detection_key,
+                                300,  # 5 minutes TTL
+                                json.dumps(detection_data, ensure_ascii=False)
+                            )
+                            logger.debug(
+                                "Stored detection data in Redis: key={}, messageId={}",
+                                detection_key,
+                                message_id
+                            )
+                        except Exception as redis_exc:
+                            logger.warning(
+                                "Failed to store detection in Redis for camera {}: {}",
+                                self.camera_id,
+                                redis_exc
+                            )
                     
                     # Record Kafka metrics
                     record_kafka_send(
@@ -274,10 +314,11 @@ class DetectionPipeline:
                         success=True
                     )
                     
-                    logger.debug(
-                        "Sent detection result to Kafka for camera {} with {} groups",
+                    logger.info(
+                        "✅ Sent detection to Kafka for camera {} with {} groups, messageId={}",
                         self.camera_id,
-                        len(normalized_groups)
+                        len(normalized_groups),
+                        message_id
                     )
                 except Exception as kafka_exc:
                     # Record Kafka error

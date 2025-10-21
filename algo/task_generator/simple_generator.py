@@ -58,6 +58,13 @@ class SimpleTaskGenerator:
         try:
             message_id = data.get('messageId')
             camera_id = data.get('cameraId')
+            
+            logger.info(
+                "📥 Received detection result: messageId={}, cameraId={}",
+                message_id,
+                camera_id
+            )
+            
             if camera_id is None:
                 logger.warning("Detection result missing cameraId, skipping")
                 return
@@ -116,8 +123,10 @@ class SimpleTaskGenerator:
             
             if task_count > 0:
                 logger.info(
-                    f"Generated {task_count} assessment tasks for "
-                    f"camera {camera_id} (messageId={message_id})"
+                    "📤 Generated {} assessment tasks for camera {} (messageId={})",
+                    task_count,
+                    camera_id,
+                    message_id
                 )
             else:
                 logger.debug(f"No tasks generated for camera {camera_id} (no groups)")

@@ -95,6 +95,13 @@ class ResultAggregator:
             request_id = result.get('requestId')
             camera_id = result.get('cameraId')
             
+            logger.info(
+                "📥 Received LLM assessment result: requestId={}, cameraId={}, hasDangerous={}",
+                request_id,
+                camera_id,
+                result.get('hasDangerousDriving', False)
+            )
+            
             if not camera_id:
                 logger.warning("Assessment result missing cameraId, skipping")
                 return
@@ -131,16 +138,24 @@ class ResultAggregator:
                 self._cache_latest_result(camera_id, merged_result)
             
             # 4. 发布到 WebSocket 频道
+            max_risk = result.get('maxRiskLevel', 'none')
             if self.enable_redis and self.redis_client:
                 self._publish_to_websocket(camera_id, merged_result)
+                logger.info(
+                    "📡 Published to WebSocket: camera={}, risk={}, hasDangerous={}",
+                    camera_id,
+                    max_risk,
+                    merged_result.get('hasDangerousDriving', False)
+                )
             
             # 5. 触发高风险告警
-            max_risk = result.get('maxRiskLevel', 'none')
             if max_risk == 'high':
                 self._trigger_alert(camera_id, merged_result)
             
             logger.info(
-                f"Aggregated result for camera {camera_id}, risk={max_risk}"
+                "✅ Aggregated result for camera {}, risk={}",
+                camera_id,
+                max_risk
             )
             
         except Exception as e:
@@ -152,9 +167,18 @@ class ResultAggregator:
             detection_key = f"detection:{request_id}"
             detection_json = self.redis_client.get(detection_key)
             if detection_json:
+                logger.debug(
+                    "✅ Found detection data in Redis: key={}, size={} bytes",
+                    detection_key,
+                    len(detection_json)
+                )
                 return json.loads(detection_json)
             else:
-                logger.debug(f"Detection data not found in Redis for {request_id}")
+                logger.warning(
+                    "❌ Detection data not found in Redis: key={}, requestId={}",
+                    detection_key,
+                    request_id
+                )
                 return None
         except Exception as e:
             logger.error(f"Failed to get detection from Redis: {e}")
@@ -176,8 +200,14 @@ class ResultAggregator:
         try:
             channel = f"camera:{camera_id}"
             result_json = json.dumps(result, ensure_ascii=False)
-            self.redis_client.publish(channel, result_json)
-            logger.debug(f"Published result to WebSocket channel: {channel}")
+            subscribers = self.redis_client.publish(channel, result_json)
+            logger.info(
+                "📡 Published to WebSocket channel '{}': {} subscribers, risk={}, hasDangerous={}",
+                channel,
+                subscribers,
+                result.get('maxRiskLevel', 'none'),
+                result.get('hasDangerousDriving', False)
+            )
         except Exception as e:
             logger.error(f"Failed to publish to WebSocket: {e}")
     
