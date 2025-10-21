@@ -134,10 +134,13 @@ class LLMTaskScheduler:
             group_image_url = task.get('groupImageUrl', '')
         
         if not group_image_url:
-            logger.error(
+            logger.warning(
                 f"Task {task.get('taskId')} has no valid image (no base64 or URL)"
             )
-            return self._empty_result(task)
+            # 返回空结果，但标记为有错误
+            result = self._empty_result(task)
+            result['error'] = 'No valid image data'
+            return result
         
         prompt = self._build_prompt(task)
         
@@ -180,16 +183,25 @@ class LLMTaskScheduler:
                             error_text = await response.text()
                             logger.error(f"LLM API error {response.status}: {error_text[:200]}")
                             if attempt == self.max_retries:
-                                raise Exception(f"API call failed: HTTP {response.status}")
+                                # 返回错误结果
+                                result = self._empty_result(task)
+                                result['error'] = f"HTTP {response.status}: {error_text[:100]}"
+                                return result
+                            await asyncio.sleep(1)
             
             except asyncio.TimeoutError:
                 logger.error(f"LLM API timeout for {api_key.key_id}, attempt {attempt + 1}")
                 if attempt == self.max_retries:
-                    raise
+                    result = self._empty_result(task)
+                    result['error'] = 'API timeout'
+                    return result
+                await asyncio.sleep(1)
             except Exception as e:
                 logger.error(f"LLM API exception: {e}")
                 if attempt == self.max_retries:
-                    raise
+                    result = self._empty_result(task)
+                    result['error'] = str(e)
+                    return result
                 await asyncio.sleep(1)
         
         return self._empty_result(task)
@@ -214,6 +226,12 @@ class LLMTaskScheduler:
                 # 调用 LLM API
                 result = await self.call_llm_api(api_key, task)
                 
+                # 检查是否是真正的成功调用
+                api_call_success = result.get('results') is not None and len(result.get('results', [])) > 0
+                if not api_call_success and result.get('error'):
+                    # 如果有错误，说明调用失败
+                    api_call_success = False
+                
                 # 打印大模型返回的完整信息（调试用）
                 group_risk = result.get('results', [{}])[0].get('riskLevel', 'none') if result.get('results') else 'none'
                 logger.info(
@@ -224,8 +242,8 @@ class LLMTaskScheduler:
                     json.dumps(result.get('results', []), ensure_ascii=False)[:500]
                 )
                 
-                # 释放 Key (成功)
-                self.key_pool.release_key(api_key, success=True)
+                # 释放 Key
+                self.key_pool.release_key(api_key, success=api_call_success)
                 
                 # 添加元数据
                 result['metadata'] = {
